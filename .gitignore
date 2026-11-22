@@ -3,3 +3,4 @@ dist/
 .codex-runs/
 *.log
 .DS_Store
+promo/out/

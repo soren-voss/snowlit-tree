@@ -96,6 +96,8 @@ export function createMagic(random: Random, samples: readonly Vector3[], capacit
     get form() { return uniforms.form.value; },
     get target() { return target; },
     setTarget(value: 0 | 1) { target = value; },
+    /** Jumps straight to a form value without the transition (promo capture). */
+    setForm(value: number) { uniforms.form.value = Math.min(1, Math.max(0, value)); },
     setDensity(count: number) { geometry.setDrawRange(0, Math.min(capacity, count)); },
     setTheme(theme: Theme) {
       uniforms.colorA.value.set(...theme.particles[0]);

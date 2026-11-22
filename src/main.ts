@@ -9,7 +9,7 @@ import { Rendering } from './core/rendering';
 import { call, sequence, Timeline, wait, parallel } from './core/timeline';
 import type { Clip } from './core/timeline';
 import { cloneScene, exampleScene, LIMITS, presetImage } from './data/gifts';
-import type { Gift, MusicId, TreeScene } from './data/gifts';
+import type { Gift, MusicId, ThemeId, TreeScene } from './data/gifts';
 import { compressImage } from './data/images';
 import { readSharedScene } from './data/share';
 import { blobUrl, collectBlobs, forgetUrl, loadScene, MUSIC_KEY, putBlob, saveScene } from './data/store';
@@ -40,6 +40,8 @@ import { Hud } from './ui/hud';
 
 type Phase = 'loading' | 'waiting' | 'igniting' | 'free' | 'error';
 type FocusTarget = Vector3 | Object3D;
+type Triple = [number, number, number];
+type PoseArrays = { position: Triple; target: Triple };
 
 interface TreeDebug {
   readonly ready: boolean;
@@ -72,6 +74,12 @@ interface TreeDebug {
   addWish(text: string): void;
   playFinale(): void;
   startDemo(): void;
+  /** Promo-video hooks: hide all controls, pin the camera, jump the particle form, switch theme. */
+  setClean(clean: boolean): void;
+  setCameraPose(pose: PoseArrays | null): void;
+  orbitPose(): PoseArrays | undefined;
+  setMagicForm(form: number, target: 0 | 1): void;
+  setTheme(theme: ThemeId): void;
 }
 
 declare global {
@@ -102,9 +110,11 @@ let scene: TreeScene | undefined;
 let worldRef: Scene | undefined;
 let magicForm = () => 0;
 let demoRunning = false;
+let cameraOverride: PoseArrays | null = null;
 let ignite = () => {};
 const actions = {
   setMagic: (_on: boolean) => {}, openEditor: () => {}, closeEditor: () => {}, addWish: (_text: string) => {}, playFinale: () => {}, startDemo: () => {},
+  setClean: (_clean: boolean) => {}, setMagicForm: (_form: number, _target: 0 | 1) => {}, setTheme: (_theme: ThemeId) => {},
 };
 
 const api: TreeDebug = {
@@ -140,6 +150,14 @@ const api: TreeDebug = {
   addWish: text => actions.addWish(text),
   playFinale: () => actions.playFinale(),
   startDemo: () => actions.startDemo(),
+  setClean: clean => actions.setClean(clean),
+  setCameraPose: pose => { cameraOverride = pose; },
+  orbitPose: () => {
+    const pose = camera?.orbitPose();
+    return pose && { position: pose.position.toArray(), target: pose.target.toArray() };
+  },
+  setMagicForm: (form, target) => actions.setMagicForm(form, target),
+  setTheme: theme => actions.setTheme(theme),
 };
 
 if (import.meta.env.DEV) window.__tree = api;
@@ -499,7 +517,12 @@ async function start(): Promise<void> {
       recording = false;
     }
   });
-  Object.assign(actions, { setMagic, openEditor, closeEditor, addWish, playFinale, startDemo });
+  Object.assign(actions, {
+    setMagic, openEditor, closeEditor, addWish, playFinale, startDemo,
+    setClean: (clean: boolean) => hud.setClean(clean),
+    setMagicForm: (form: number, target: 0 | 1) => { magic.setForm(form); magic.setTarget(target); },
+    setTheme: (theme: ThemeId) => { tree.theme = theme; applyTheme(); },
+  });
 
   // ---------- wish notes ----------
   const ray = new Raycaster();
@@ -645,6 +668,11 @@ async function start(): Promise<void> {
     else view.update(delta);
     if (demo?.update(delta)) stopDemo();
     for (let i = effects.length - 1; i >= 0; i--) if (effects[i].update(delta)) effects.splice(i, 1);
+    if (cameraOverride) {
+      view.camera.position.fromArray(cameraOverride.position);
+      view.camera.lookAt(...cameraOverride.target);
+      view.camera.updateMatrixWorld();
+    }
     hud.setToolbar(phase === 'free' && !editor?.isOpen && !gifts.busy && !demoRunning);
     draw(delta);
     requestAnimationFrame(frame);
