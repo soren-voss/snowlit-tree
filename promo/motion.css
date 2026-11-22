@@ -1,0 +1,49 @@
+:root {
+  --cream: #f3efe6;
+  --paper: #fcfbf8;
+  --line: #e2dccf;
+  --ink: #1e1c19;
+  --muted: #8a847a;
+  --coral: #d97757;
+  --serif: 'Noto Serif SC', 'Source Han Serif SC', serif;
+  --sans: 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: var(--cream); }
+#film { position: relative; width: 1920px; height: 1080px; overflow: hidden; background: var(--cream); color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+.layer { position: absolute; inset: 0; pointer-events: none; }
+
+/* ---------- prompt → window ---------- */
+.morph { position: absolute; background: var(--paper); border: 1.5px solid var(--line); box-shadow: 0 14px 40px rgba(60, 42, 20, .1); overflow: hidden; }
+.prompt-text { position: absolute; left: 52px; top: 42px; right: 52px; font: 400 52px/1.5 var(--serif); white-space: pre-wrap; }
+.prompt-text .placeholder { color: #aaa398; }
+.caret { display: inline-block; width: 3px; height: 58px; margin-left: 4px; vertical-align: -9px; background: var(--ink); }
+.prompt-foot { position: absolute; left: 52px; right: 34px; bottom: 30px; display: flex; align-items: center; justify-content: space-between; }
+.model { font: 500 30px/1 var(--sans); color: var(--muted); }
+.send { display: grid; place-items: center; width: 76px; height: 76px; border-radius: 22px; background: var(--coral); }
+.send svg { width: 36px; height: 36px; stroke: #fff; stroke-width: 2.6; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.spark { position: absolute; width: 64px; height: 64px; color: var(--coral); }
+.spark svg { width: 64px; height: 64px; fill: currentColor; }
+
+/* ---------- live scene windows ---------- */
+.frame { position: absolute; overflow: hidden; visibility: hidden; background: #070d22; will-change: left, top, width, height; }
+.frame iframe { position: absolute; left: 0; top: 0; border: 0; transform-origin: 0 0; }
+.frame.card { box-shadow: 0 18px 50px rgba(54, 40, 22, .18), 0 2px 8px rgba(54, 40, 22, .08); }
+
+/* ---------- icon badges ---------- */
+.badge { position: absolute; display: grid; place-items: center; border-radius: 50%; background: var(--paper); box-shadow: 0 8px 24px rgba(30, 20, 10, .22); visibility: hidden; }
+.badge svg { fill: none; stroke: var(--coral); stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---------- pointer ---------- */
+.cursor { position: absolute; width: 50px; height: 50px; margin: -4px 0 0 -6px; visibility: hidden; }
+.cursor svg { width: 50px; height: 50px; filter: drop-shadow(0 3px 6px rgba(0, 0, 0, .35)); }
+.ring { position: absolute; width: 84px; height: 84px; margin: -42px 0 0 -42px; border-radius: 50%; border: 3px solid var(--coral); visibility: hidden; }
+.tap { position: absolute; width: 130px; height: 130px; margin: -65px 0 0 -65px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, .95); background: rgba(255, 255, 255, .12); visibility: hidden; }
+
+/* ---------- end mark ---------- */
+.end { position: absolute; inset: 0; background: var(--cream); visibility: hidden; }
+.end .mark { position: absolute; left: 50%; top: 300px; width: 150px; height: 150px; margin-left: -75px; }
+.end .mark svg { width: 150px; height: 150px; fill: none; stroke: var(--coral); stroke-width: 1.4; stroke-linejoin: round; stroke-linecap: round; }
+.end h1 { position: absolute; left: 0; right: 0; top: 500px; margin: 0; text-align: center; font: 600 150px/1.2 var(--serif); letter-spacing: .08em; }
+.black { position: absolute; inset: 0; background: var(--cream); pointer-events: none; }

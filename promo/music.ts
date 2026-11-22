@@ -504,3 +504,125 @@ export async function renderFilmAudio(mix: 'full' | 'effects', cues: FilmCues): 
   }
   return render(withMusic ? .89 : .7);
 }
+
+// ---------- motion cut score: 120 BPM, "Jingle Bells" from the drop, home chord on the name mark ----------
+export interface MotionCues {
+  duration: number;
+  drop: number;
+  typing: number[];
+  send: number;
+  morph: number;
+  converge: number;
+  ignite: number;
+  pops: number[];
+  focuses: number[];
+  clicks: number[];
+  themes: number[];
+  giftOpen: number;
+  wishType: number[];
+  wishLand: number;
+  magic: number;
+  tap: number;
+  outro: number;
+  finale: number;
+  end: number;
+}
+
+export async function renderMotionAudio(mix: 'full' | 'effects', cues: MotionCues): Promise<string> {
+  const withMusic = mix === 'full';
+  const { music, sfx, tine, pad, bass, noiseHit, sine, kick, snare, hat, sleigh, crash, boom, keyClick, uiClick, whoosh, riser, bell, sparkle, render } = createEngine(cues.duration);
+  const D = cues.drop;
+
+  // effects
+  cues.typing.forEach(at => keyClick(at));
+  keyClick(cues.send, .2);
+  sine(cues.send, 520, 880, .12, .12, sfx, .06);
+  whoosh(cues.morph - .1, 1, true, .12);
+  sparkle(cues.converge + .3, 6, .08);
+  sparkle(cues.converge + 1.7, 6, .08);
+  bell(cues.ignite, 523.25, .45);
+  sparkle(cues.ignite + .6, 7, .08);
+  boom(D, .5);
+  crash(D, .18);
+  bell(D, 1046.5, .2);
+  sparkle(D + .05, 9, .09);
+  ['C6', 'D6', 'E6', 'G6', 'A6', 'C7'].forEach((note, i) => { tine(cues.pops[i], midi(note), .12, sfx, .7, (i / 5 - .5) * .8); noiseHit(cues.pops[i], .05, 'highpass', 4000, 3000, .05, sfx); });
+  cues.focuses.forEach(at => whoosh(at - .2, .55, true, .07));
+  const g = cues.giftOpen;
+  noiseHit(g + 1.76, .5, 'bandpass', 700, 3200, .16, sfx, .15, 1.2);
+  sine(g + 2.38, 190, 70, .16, .32, sfx, .12);
+  sparkle(g + 2.68, 6, .08);
+  sparkle(g + 4.38, 4, .08);
+  cues.clicks.forEach(at => uiClick(at));
+  cues.themes.forEach(at => sparkle(at, 3, .08));
+  whoosh(cues.magic, 2.6, true, .12);
+  sparkle(cues.magic + .8, 8, .07);
+  cues.wishType.forEach(at => keyClick(at, .08));
+  uiClick(cues.wishLand - 1.75, .14);
+  [84, 88, 91, 96].forEach((note, i) => tine(cues.wishLand + i * .09, note, .14, sfx, .7));
+  uiClick(cues.tap, .14);
+  bell(cues.tap + .05, 659.25, .25);
+  whoosh(cues.outro - .15, .7, true, .1);
+  [72, 76, 79, 84, 88, 91, 96].forEach((note, i) => tine(cues.finale + i * .11, note, .1, sfx, 1.2));
+  sparkle(cues.finale + 1, 10, .07);
+  crash(cues.end, .15);
+  boom(cues.end, .32);
+  bell(cues.end, 523.25, .3);
+
+  if (withMusic) {
+    // prompt: soft pad, slow music-box notes under the typing
+    pad(.2, 4.9, 'Cmaj7', .045, 900);
+    ['G5', 'B5', 'E6', 'D6', 'G5', 'B5', 'E6', 'C6'].forEach((note, i) => tine(.6 + i * .6, midi(note), .08, music, 1.2, i % 2 ? .25 : -.25));
+    // build: arpeggios quicken, heartbeat kicks, riser into the drop
+    pad(5, 5, 'Am7', .05, 1000);
+    pad(10, 2, 'Fmaj7', .065, 1300);
+    pad(12, 1.85, 'G', .08, 1900);
+    bass(6, midi('A1'), 4, .22);
+    bass(10, midi('F1'), 2, .26);
+    bass(12, midi('G1'), 1.85, .28);
+    const arp = (from: number, to: number, step: number, notes: string[], level: number) => {
+      for (let at = from, i = 0; at < to - .01; at += step, i++) tine(at, midi(notes[i % notes.length]) + (i % 8 >= 4 ? 12 : 0), level, music, .7, i % 2 ? .3 : -.3);
+    };
+    arp(6, 10, .5, ['A5', 'C6', 'E6', 'G6'], .07);
+    arp(10, 12, .25, ['F5', 'A5', 'C6', 'E6'], .08);
+    arp(12, 13.9, .125, ['G5', 'B5', 'D6', 'G6'], .09);
+    for (let at = 12; at < 13; at += .5) kick(at, .35);
+    for (let at = 13; at < 13.9; at += .25) kick(at, .38 + (at - 13) * .25);
+    riser(11, D - .05, .13);
+
+    const playMelody = (start: number, notes: [number, number, number][], level: number) => {
+      for (const [b, note] of notes) {
+        tine(start + b * .5, note, level, music, 1, -.08);
+        tine(start + b * .5, note + 12, level * .3, music, .7, .3);
+      }
+    };
+    const groove = (start: number, chords: string[], fill = false) => chords.forEach((chord, bar) => {
+      const t0 = start + bar * 2;
+      pad(t0, 2, chord, .042, 1500);
+      const root = midi({ C: 'C2', F: 'F1', G7: 'G1', D7: 'D2', G: 'G1' }[chord]!);
+      bass(t0, root, .95, .42);
+      bass(t0 + 1, root + 7, .45, .32);
+      bass(t0 + 1.5, root + 12, .45, .28);
+      for (let beat = 0; beat < 4; beat++) {
+        const at = t0 + beat * .5;
+        if (beat % 2 === 0) kick(at, .62); else snare(at, .26);
+        hat(at + .25, .06);
+        sleigh(at, .045);
+        sleigh(at + .25, .03);
+      }
+      if (fill && bar === chords.length - 1) for (let i = 0; i < 4; i++) snare(t0 + 1.5 + i * .125, .12 + i * .05);
+    });
+    playMelody(D, phrase('E5 E5 E5:2 E5 E5 E5:2 E5 G5 C5:1.5 D5:.5 E5:4 F5 F5 F5:1.5 F5:.5 F5 E5 E5 E5:.5 E5:.5 E5 D5 D5 E5 D5:2 G5:2'), .2);
+    groove(D, ['C', 'C', 'C', 'C', 'F', 'C', 'D7', 'G7'], true);
+    crash(D + 16, .12);
+    playMelody(D + 16, phrase('F5 F5 F5:1.5 F5:.5 F5 E5 E5 E5:.5 E5:.5 G5 G5 F5 D5'), .21);
+    groove(D + 16, ['F', 'C', 'G7'], true);
+    const E = cues.end;
+    pad(E, 3.8, 'C', .07, 1400);
+    bass(E, midi('C2'), 3.2, .4);
+    tine(E, midi('C5'), .22, music, 2);
+    ['C5', 'E5', 'G5', 'C6', 'E6', 'G6', 'C7'].forEach((note, i) => tine(E + .1 + i * .08, midi(note), .14, music, 1.6, (i / 6 - .5) * .8));
+    kick(E, .6);
+  }
+  return render(withMusic ? .89 : .7);
+}
