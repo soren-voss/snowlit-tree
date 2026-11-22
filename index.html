@@ -6,14 +6,32 @@
     <meta name="theme-color" content="#070d22" />
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/src/ui/stage.css" />
+    <link rel="stylesheet" href="/src/ui/gift-card.css" />
     <title>雪夜礼物树</title>
   </head>
   <body>
     <main id="stage" aria-label="雪夜礼物树">
-      <canvas id="scene" aria-label="可旋转欣赏的雪夜圣诞树"></canvas>
+      <canvas id="scene" tabindex="-1" aria-label="可旋转欣赏的雪夜圣诞树"></canvas>
       <div id="loading" class="veil" role="status" aria-label="正在准备雪夜场景"><span class="loading-star"></span></div>
       <button id="ignite" class="veil invitation" type="button" hidden><span>轻触点亮</span></button>
       <p id="error" class="veil" role="alert" hidden></p>
+      <dialog id="gift-dialog" aria-labelledby="gift-name" aria-describedby="gift-message">
+        <article class="gift-card">
+          <button class="gift-dismiss" type="button" aria-label="关闭礼物卡片" autofocus>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"/></svg>
+          </button>
+          <div class="gift-print"><img id="gift-image" alt="" /></div>
+          <div class="gift-note">
+            <h1 id="gift-name"></h1>
+            <p id="gift-message"></p>
+            <dl class="gift-signature">
+              <div id="gift-from" hidden><dt>From</dt><dd></dd></div>
+              <div id="gift-to" hidden><dt>To</dt><dd></dd></div>
+            </dl>
+            <button class="gift-rewrap" type="button">重新包装</button>
+          </div>
+        </article>
+      </dialog>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>

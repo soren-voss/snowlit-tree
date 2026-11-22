@@ -1,4 +1,4 @@
-import { DirectionalLight, HemisphereLight, PMREMGenerator, PointLight, Scene } from 'three';
+import { DirectionalLight, HemisphereLight, MathUtils, PMREMGenerator, PointLight, Scene } from 'three';
 import type { Object3D, Vector3 } from 'three';
 import { SceneCamera } from './core/camera';
 import { QualityMonitor, settings } from './core/quality';
@@ -6,6 +6,9 @@ import type { Quality } from './core/quality';
 import { createRandom, readSeed } from './core/random';
 import { Rendering } from './core/rendering';
 import type { Timeline } from './core/timeline';
+import { exampleScene } from './data/gifts';
+import { createGiftBoxes } from './scene/gifts/boxes';
+import { GiftReveal } from './scene/gifts/reveal';
 import { createLandscape } from './scene/landscape';
 import { createSky } from './scene/sky';
 import { createSnow } from './scene/snow';
@@ -14,8 +17,9 @@ import { BASE_BLOOM, createIllumination } from './scene/tree/illumination';
 import type { LightMode, LightsState } from './scene/tree/illumination';
 import { createOrnaments } from './scene/tree/ornaments';
 import { GIFT_RING } from './scene/tree/shape';
+import { GiftExperience } from './sequences/gifts';
 import { finishLighting, igniteSequence } from './sequences/ignite';
-import { glowTexture, needleTexture, reflectionTexture } from './textures/procedural';
+import { barkTexture, glowTexture, needleTexture, reflectionTexture } from './textures/procedural';
 
 type Phase = 'loading' | 'waiting' | 'igniting' | 'free' | 'error';
 type FocusTarget = Vector3 | Object3D;
@@ -30,11 +34,15 @@ interface TreeDebug {
   readonly orbiting: boolean;
   readonly lights: Readonly<LightsState> | undefined;
   readonly giftRing: typeof GIFT_RING;
+  readonly gifts: ReturnType<GiftExperience['summary']>;
   onIgnite?: () => void;
   ignite(): void;
   setLightMode(mode: LightMode): void;
   setFocus(target: FocusTarget): void;
   clearFocus(): void;
+  openGift(id: string): boolean;
+  closeGift(): boolean;
+  rewrapGift(id: string): boolean;
 }
 
 declare global {
@@ -51,11 +59,13 @@ const loading = document.querySelector<HTMLElement>('#loading')!;
 const loadingStar = loading.querySelector<HTMLElement>('.loading-star')!;
 const invitation = document.querySelector<HTMLButtonElement>('#ignite')!;
 const error = document.querySelector<HTMLElement>('#error')!;
+const giftDialog = document.querySelector<HTMLDialogElement>('#gift-dialog')!;
 let phase: Phase = 'loading';
 let ready = false;
 let camera: SceneCamera | undefined;
 let rendering: Rendering | undefined;
 let lights: ReturnType<typeof createIllumination> | undefined;
+let giftExperience: GiftExperience | undefined;
 let ignite = () => {};
 
 const api: TreeDebug = {
@@ -68,10 +78,14 @@ const api: TreeDebug = {
   get orbiting() { return camera?.orbiting ?? false; },
   get lights() { return lights?.state; },
   get giftRing() { return GIFT_RING; },
+  get gifts() { return giftExperience?.summary() ?? []; },
   ignite: () => ignite(),
   setLightMode: mode => lights?.setLightMode(mode),
   setFocus: target => rendering?.setFocus(target),
   clearFocus: () => rendering?.clearFocus(),
+  openGift: id => giftExperience?.open(id) ?? false,
+  closeGift: () => giftExperience?.close() ?? false,
+  rewrapGift: id => giftExperience?.rewrap(id) ?? false,
 };
 
 if (import.meta.env.DEV) window.__tree = api;
@@ -114,14 +128,19 @@ async function start(): Promise<void> {
   const fill = new DirectionalLight(0x859ecf, .63);
   fill.position.set(7, 9, 14);
   const warm = new PointLight(0xffb66b, 0, 9.5, 2);
-  warm.position.set(.42, 2.1, .28);
-  scene.add(moon, moon.target, fill, warm, new HemisphereLight(0xa9c6ff, 0x4f5268, 1.03));
+  warm.position.set(.04, 1.23, .34);
+  const ambient = new HemisphereLight(0xa9c6ff, 0x4f5268, 1.03);
+  scene.add(moon, moon.target, fill, warm, ambient);
   await loadProgress(.45);
 
-  const evergreen = createEvergreen(needleTexture(createRandom(seed ^ 4501)), createRandom(seed ^ 221799));
-  const ornaments = createOrnaments(createRandom(seed ^ 890025));
-  const illumination = lights = createIllumination(createRandom(seed ^ 387149), glowTexture());
-  scene.add(evergreen.group, ornaments.group, illumination.group);
+  const evergreen = createEvergreen(needleTexture(createRandom(seed ^ 4501)), barkTexture(createRandom(seed ^ 28691)), createRandom(seed ^ 221799));
+  const ornaments = createOrnaments(createRandom(seed ^ 890025), evergreen.surface);
+  const glow = glowTexture();
+  const illumination = lights = createIllumination(createRandom(seed ^ 387149), glow, evergreen.surface);
+  const boxes = createGiftBoxes(exampleScene.gifts, createRandom(seed ^ 651247), glow);
+  const reveal = new GiftReveal(exampleScene.gifts, createRandom(seed ^ 349166), settings.high.giftParticles);
+  const gifts = giftExperience = new GiftExperience(boxes, reveal, view, pipeline, canvas, giftDialog, () => phase === 'free');
+  scene.add(evergreen.group, ornaments.group, illumination.group, ...boxes.map(box => box.root), reveal.group);
   await loadProgress(.76);
 
   const map = reflectionTexture(createRandom(seed ^ 839771));
@@ -147,6 +166,7 @@ async function start(): Promise<void> {
     const tier = settings[quality.quality];
     evergreen.setDensity(tier.needles);
     flakes.setDensity(tier.snow);
+    reveal.setDensity(tier.giftParticles);
     pipeline.setQuality(quality.quality, moon);
     resize();
   }
@@ -158,14 +178,21 @@ async function start(): Promise<void> {
   const draw = (delta: number) => {
     const ratio = pipeline.renderer.getPixelRatio();
     const kindled = state.ground;
-    warm.intensity = kindled * 27;
+    const dawn = MathUtils.smoothstep(state.bulbs, 0, 1);
+    moon.intensity = MathUtils.lerp(1.34, 1.83, dawn);
+    fill.intensity = MathUtils.lerp(.13, .63, dawn);
+    ambient.intensity = MathUtils.lerp(.43, 1.03, dawn);
+    scene.environmentIntensity = MathUtils.lerp(.29, .70, dawn);
+    warm.intensity = kindled * 21;
     terrain.groundGlow.value = kindled;
-    evergreen.localLight.value = kindled * (.92 + .08 * Math.sin(time * 1.4));
+    evergreen.localLight.value = kindled;
     ornaments.setLight(kindled);
     pipeline.bloom.intensity = BASE_BLOOM + state.flare * .88;
     sky.update(time, ratio);
     flakes.update(time, ratio, height);
     illumination.update(time, ratio);
+    gifts.update(time, delta, ratio);
+    pipeline.setExposure(MathUtils.lerp(.46, 1, dawn) * (1 - .57 * gifts.dim));
     pipeline.render(delta);
   };
 
@@ -207,7 +234,7 @@ async function start(): Promise<void> {
   const frame = (timestamp: number) => {
     const elapsed = previous === undefined ? 0 : (timestamp - previous) / 1000;
     previous = timestamp;
-    const delta = Math.min(elapsed, 1.5);
+    const delta = document.hidden ? 0 : Math.min(elapsed, .25);
     time += delta;
     if (quality.update(elapsed)) applyQuality();
     if (width !== canvas.clientWidth || height !== canvas.clientHeight || dpr !== devicePixelRatio) resize();
@@ -216,7 +243,7 @@ async function start(): Promise<void> {
     draw(delta);
     requestAnimationFrame(frame);
   };
-  document.addEventListener('visibilitychange', () => { previous = undefined; });
+  document.addEventListener('visibilitychange', () => { previous = undefined; quality.reset(); });
   requestAnimationFrame(frame);
 }
 

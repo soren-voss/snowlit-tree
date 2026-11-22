@@ -1,5 +1,6 @@
 import { CanvasTexture, Color, EquirectangularReflectionMapping, SRGBColorSpace } from 'three';
 import type { Random } from '../core/random';
+import type { Gift } from '../data/gifts';
 
 function surface(width: number, height: number): CanvasRenderingContext2D {
   const canvas = document.createElement('canvas');
@@ -56,6 +57,74 @@ export function glowTexture(): CanvasTexture {
   ctx.fillStyle = light;
   ctx.fillRect(0, 0, 128, 128);
   return new CanvasTexture(ctx.canvas);
+}
+
+export function barkTexture(random: Random): CanvasTexture {
+  const ctx = surface(128, 128);
+  ctx.fillStyle = '#756359';
+  ctx.fillRect(0, 0, 128, 128);
+  for (let i = 0; i < 150; i++) {
+    const x = random() * 128;
+    const width = 0.5 + random() * 3;
+    ctx.strokeStyle = i % 4 === 0 ? '#978578' : '#4c3932';
+    ctx.lineWidth = width;
+    ctx.globalAlpha = .22 + random() * .55;
+    ctx.beginPath();
+    ctx.moveTo(x, -4);
+    for (let y = 6; y < 137; y += 7) ctx.lineTo(x + (random() - .5) * width * 2.5, y);
+    ctx.stroke();
+  }
+  const texture = new CanvasTexture(ctx.canvas);
+  texture.colorSpace = SRGBColorSpace;
+  return texture;
+}
+
+export function wrappingTexture(pattern: Gift['box']['pattern'], random: Random): CanvasTexture {
+  const ctx = surface(128, 128);
+  ctx.fillStyle = '#f3eee6';
+  ctx.fillRect(0, 0, 128, 128);
+  if (pattern === 'stripe') {
+    ctx.strokeStyle = '#fff4d9';
+    ctx.lineWidth = 4;
+    for (let x = -128; x < 144; x += 16) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x + 128, 128);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#7c6961';
+    ctx.globalAlpha = .19;
+    for (let x = 0; x < 128; x += 16) ctx.fillRect(x, 0, 1, 128);
+  } else if (pattern === 'dot') {
+    ctx.fillStyle = '#fffded';
+    for (let y = 0; y < 128; y += 16) {
+      for (let x = 0; x < 128; x += 16) {
+        ctx.beginPath();
+        ctx.arc(x + (y % 32 ? 11 : 4), y + 6, 2.25, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  } else if (pattern === 'foil') {
+    const luster = ctx.createLinearGradient(0, 30, 128, 108);
+    luster.addColorStop(0, '#b9a291');
+    luster.addColorStop(.44, '#fff3ce');
+    luster.addColorStop(.73, '#ddc6aa');
+    luster.addColorStop(1, '#f2d8ad');
+    ctx.fillStyle = luster;
+    ctx.fillRect(0, 0, 128, 128);
+    ctx.globalAlpha = .24;
+    for (let i = 0; i < 104; i++) {
+      ctx.fillStyle = i % 2 ? '#7d6251' : '#fffae5';
+      ctx.fillRect(random() * 128, random() * 128, .6 + random() * 5, .55 + random() * 1.1);
+    }
+  }
+  ctx.globalAlpha = .1;
+  ctx.fillStyle = '#786454';
+  for (let i = 0; i < 260; i++) ctx.fillRect(random() * 128, random() * 128, 1, 1);
+  const texture = new CanvasTexture(ctx.canvas);
+  texture.colorSpace = SRGBColorSpace;
+  texture.anisotropy = 4;
+  return texture;
 }
 
 export function reflectionTexture(random: Random): CanvasTexture {

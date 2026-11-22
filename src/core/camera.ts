@@ -5,10 +5,16 @@ const IDLE_SECONDS = 8;
 const MIN_ELEVATION = degToRad(-23);
 const MAX_ELEVATION = degToRad(35);
 
+export interface CameraPose {
+  position: Vector3;
+  target: Vector3;
+}
+
 export class SceneCamera {
   readonly camera = new PerspectiveCamera(36, 1, 0.16, 165);
   enabled = false;
   orbiting = false;
+  private inspecting = false;
   private readonly target = new Vector3();
   private readonly pointers = new Map<number, { x: number; y: number }>();
   private readonly reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -42,13 +48,14 @@ export class SceneCamera {
     const visibleWidth = 7.5 / (2 * Math.tan(degToRad(this.camera.fov / 2)) * this.camera.aspect);
     this.framingDistance = Math.max(lerp(17.6, 15.2, this.portrait), visibleWidth);
     this.camera.updateProjectionMatrix();
+    if (this.inspecting) return;
     if (!this.enabled) this.setIntro(this.progress);
     else this.applyPose();
   }
 
   setIntro(progress: number): void {
     this.progress = progress;
-    this.angle = lerp(lerp(-0.09, 0.02, this.portrait), lerp(0.12, 0.085, this.portrait), progress);
+    this.angle = lerp(lerp(-0.09, 0.02, this.portrait), lerp(0.12, 0.055, this.portrait), progress);
     this.elevation = lerp(-0.114, -0.041, progress);
     this.zoom = lerp(lerp(0.78, 0.92, this.portrait), 1, progress);
     this.target.set(0, lerp(4.25, 3.94, progress), 0);
@@ -56,7 +63,7 @@ export class SceneCamera {
   }
 
   update(delta: number): void {
-    if (!this.enabled) return;
+    if (!this.enabled || this.inspecting) return;
     if (this.pointers.size === 0) this.idle += delta;
     this.orbiting = this.idle >= IDLE_SECONDS && !this.reducedMotion.matches;
     this.drift = MathUtils.damp(this.drift, this.orbiting ? 0.065 : 0, 2.6, delta);
@@ -72,10 +79,41 @@ export class SceneCamera {
   }
 
   private applyPose(): void {
+    this.placeOrbit(this.camera.position);
+    this.camera.lookAt(this.target);
+    this.camera.updateMatrixWorld();
+  }
+
+  orbitPose(): CameraPose {
+    return { position: this.placeOrbit(new Vector3()), target: this.target.clone() };
+  }
+
+  private placeOrbit(position: Vector3): Vector3 {
     const distance = this.framingDistance * this.zoom;
     const radius = distance * Math.cos(this.elevation);
-    this.camera.position.set(radius * Math.sin(this.angle), Math.max(0.72, this.target.y + distance * Math.sin(this.elevation)), radius * Math.cos(this.angle));
-    this.camera.lookAt(this.target);
+    return position.set(radius * Math.sin(this.angle), Math.max(.72, this.target.y + distance * Math.sin(this.elevation)), radius * Math.cos(this.angle));
+  }
+
+  beginInspection(): CameraPose {
+    this.inspecting = true;
+    this.canvas.dataset.inspecting = '';
+    this.pointers.clear();
+    this.panX = this.panY = this.zoomVelocity = 0;
+    this.wake();
+    return { position: this.camera.position.clone(), target: this.target.clone() };
+  }
+
+  setInspectionPose(pose: CameraPose): void {
+    this.camera.position.copy(pose.position);
+    this.camera.lookAt(pose.target);
+    this.camera.updateMatrixWorld();
+  }
+
+  endInspection(): void {
+    this.inspecting = false;
+    delete this.canvas.dataset.inspecting;
+    this.wake();
+    this.applyPose();
   }
 
   private wake(): void {
@@ -85,7 +123,7 @@ export class SceneCamera {
   }
 
   private onDown = (event: PointerEvent): void => {
-    if (!this.enabled || event.pointerType === 'mouse' && event.button !== 0 || this.pointers.size === 2) return;
+    if (!this.enabled || this.inspecting || event.pointerType === 'mouse' && event.button !== 0 || this.pointers.size === 2) return;
     this.wake();
     this.panX = this.panY = this.zoomVelocity = 0;
     this.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
@@ -94,7 +132,7 @@ export class SceneCamera {
 
   private onMove = (event: PointerEvent): void => {
     const previous = this.pointers.get(event.pointerId);
-    if (!this.enabled || !previous) return;
+    if (!this.enabled || this.inspecting || !previous) return;
     this.wake();
     const x = event.clientX;
     const y = event.clientY;
@@ -126,7 +164,7 @@ export class SceneCamera {
 
   private onWheel = (event: WheelEvent): void => {
     event.preventDefault();
-    if (!this.enabled) return;
+    if (!this.enabled || this.inspecting) return;
     this.wake();
     const scale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? this.canvas.clientHeight : 1;
     this.zoomVelocity = clamp(this.zoomVelocity + event.deltaY * scale * 0.00125, -0.26, 0.26);

@@ -1,0 +1,122 @@
+#gift-dialog {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: max(env(safe-area-inset-top), 12px) 0 max(env(safe-area-inset-bottom), 12px);
+  border: 0;
+  background: transparent;
+  color: #41291e;
+}
+
+#gift-dialog[open] {
+  display: grid;
+  place-items: center;
+}
+
+#gift-dialog::backdrop { background: transparent; }
+
+.gift-card {
+  --gold: #8e6338;
+  position: relative;
+  display: grid;
+  align-content: start;
+  width: min(25.5rem, 82vw);
+  max-height: 100%;
+  overflow: auto;
+  padding: clamp(.8rem, 3vw, 1.2rem);
+  border: 1px solid #b89464;
+  outline: 1px solid #d1b58b88;
+  outline-offset: -6px;
+  border-radius: 3px;
+  background: radial-gradient(ellipse at 16% 0%, #fffaf0, transparent 65%), #f4e8d5;
+  box-shadow: 0 22px 85px #060917c9, 0 0 32px #e9b7732b;
+  text-wrap: pretty;
+  touch-action: pan-y;
+  animation: gift-card-enter 320ms cubic-bezier(.2,.72,.25,1) both;
+}
+
+#gift-dialog[data-leaving] .gift-card {
+  animation: gift-card-leave 230ms ease-in both;
+  pointer-events: none;
+}
+
+.gift-print {
+  border: 1px solid #ad865a6b;
+  background: #efe0c9;
+}
+
+.gift-print img { display: block; width: 100%; height: auto; aspect-ratio: 10 / 7; }
+.gift-note { padding: .96rem clamp(.2rem, 2.8vw, .66rem) .2rem; }
+
+#gift-name {
+  margin: 0 0 .42rem;
+  font: 600 clamp(1.28rem, 4.8vw, 1.73rem) / 1.25 'Songti SC', 'Noto Serif CJK SC', SimSun, serif;
+}
+
+#gift-message {
+  margin: 0;
+  color: #61493b;
+  font: 400 clamp(.87rem, 3.6vw, .98rem) / 1.65 system-ui, sans-serif;
+}
+
+.gift-signature {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem 1rem;
+  margin: 0;
+  font: .79rem / 1.5 system-ui, sans-serif;
+}
+
+.gift-signature:has(> :not([hidden])) {
+  margin-top: .75rem;
+  padding-top: .55rem;
+  border-top: 1px solid #b894645c;
+}
+
+.gift-signature div { display: flex; gap: .35rem; }
+.gift-signature dt { color: #75502c; font: italic .88rem / 1.4 Georgia, serif; }
+.gift-signature dd { margin: 0; }
+
+.gift-card button {
+  color: #6e482a;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.gift-card button:focus-visible { outline: 2px solid #8d5c30; outline-offset: 3px; }
+.gift-dismiss {
+  position: absolute;
+  top: .75rem;
+  right: .75rem;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  width: 2.65rem;
+  height: 2.65rem;
+  border: 1px solid #b98e5c9c;
+  background: #fbefdb;
+}
+.gift-dismiss svg { width: 1.2rem; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
+.gift-rewrap {
+  margin-top: .65rem;
+  padding: .44rem .78rem;
+  min-height: 2.4rem;
+  border: 1px solid #b89464;
+  background: transparent;
+  font: .83rem / 1.25 system-ui, sans-serif;
+}
+.gift-card button:hover { background: #eddbbd; }
+
+@keyframes gift-card-enter {
+  from { opacity: 0; transform: translateY(10px) scale(.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes gift-card-leave { to { opacity: 0; transform: translateY(14px) scale(.94); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .gift-card, #gift-dialog[data-leaving] .gift-card { animation-duration: 1ms; }
+}

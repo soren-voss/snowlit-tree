@@ -4,21 +4,22 @@ import {
   Object3D, Points, ShaderMaterial, Shape, Sprite, SpriteMaterial, Texture, TubeGeometry, Vector3,
 } from 'three';
 import type { Random } from '../../core/random';
-import { CROWN_BASE, TAU, TREE_TOP, crownCenter, crownSurface } from './shape';
+import { CROWN_BASE, TAU, TREE_TOP, crownCenter } from './shape';
+import type { CrownSurface } from './shape';
 
 const modes = ['breath', 'chase', 'twinkle'] as const;
 export type LightMode = typeof modes[number];
 const FLOW_COUNT = 50;
 
 class GarlandPath extends Curve<Vector3> {
-  constructor() {
+  constructor(private readonly surface: CrownSurface) {
     super();
   }
 
   getPoint(t: number, target = new Vector3()): Vector3 {
     const angle = -0.38 + t * TAU * 6.4;
-    const y = CROWN_BASE - .025 + t * (TREE_TOP - CROWN_BASE - .10) + .072 * Math.sin(angle * 2.0) * (1 - t);
-    return crownSurface(y, angle, .074 + .092 * Math.sin(angle * 3 + t * 3) * (1 - t) + .06 * Math.sin(t * 100), target);
+    const y = CROWN_BASE + .26 + t * (TREE_TOP - CROWN_BASE - .48) + .04 * Math.sin(angle * 2.0) * (1 - t);
+    return this.surface(y, angle, .041 + .038 * Math.cos(t * 72), target);
   }
 
   override getPointAt(t: number, target?: Vector3): Vector3 {
@@ -70,11 +71,6 @@ function bulbString(path: GarlandPath, random: Random) {
     const t = (i + .2 + random() * .6) / count;
     const size = (.023 + .032 * random() ** 1.5) * (1 - .24 * t);
     path.getPoint(t, proxy.position);
-    if (i % 3 !== 0) {
-      proxy.position.y += (random() - .50) * .28 * (1 - t * .6);
-      proxy.position.x *= .93 + random() * .12;
-      proxy.position.z *= .93 + random() * .12;
-    }
     proxy.scale.set(size * .86, size * (.9 + random() * .42), size);
     proxy.updateMatrix();
     bulbs.setMatrixAt(i, proxy.matrix);
@@ -222,9 +218,9 @@ export interface LightsState {
   flare: number;
 }
 
-export function createIllumination(random: Random, glow: Texture) {
+export function createIllumination(random: Random, glow: Texture, surface: CrownSurface) {
   const group = new Group();
-  const path = new GarlandPath();
+  const path = new GarlandPath(surface);
   const bulbs = bulbString(path, random);
   const ribbon = goldRibbon(path);
   const sparks = movingLights(random);
@@ -254,7 +250,7 @@ export function createIllumination(random: Random, glow: Texture) {
         for (let i = 0; i < FLOW_COUNT; i++) {
           const t = (sparks.shift[i] + time * .027) % 1;
           path.getPoint(t, cursor);
-          positions.setXYZ(i, cursor.x * 1.008, cursor.y + .014, cursor.z * 1.008);
+          positions.setXYZ(i, cursor.x, cursor.y + .008, cursor.z);
           const edge = MathUtils.smoothstep(t, 0, .035) * (1 - MathUtils.smoothstep(t, state.ribbon - .055, state.ribbon));
           shine.setX(i, edge * (.38 + .24 * Math.sin(time * 2.6 + i * 7)));
         }

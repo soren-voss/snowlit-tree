@@ -4,9 +4,10 @@ import {
 } from 'three';
 import type { Texture } from 'three';
 import type { Random } from '../../core/random';
-import { TAU, crownRadius, crownSurface } from './shape';
+import { TAU } from './shape';
+import type { CrownSurface } from './shape';
 
-export function createOrnaments(random: Random) {
+export function createOrnaments(random: Random, surface: CrownSurface) {
   const group = new Group();
   const ball = new SphereGeometry(1, 18, 12);
   const cap = new CylinderGeometry(.83, 1, 1, 8);
@@ -29,11 +30,11 @@ export function createOrnaments(random: Random) {
   const goldenAngle = 2.399963;
   for (let i = 0; i < count; i++) {
     const t = i / count;
-    const y = 1.34 + t ** 1.31 * 5.78 + (random() - .5) * .5;
+    const y = .68 + t ** 1.05 * 6.45 + (random() - .5) * .2;
     const angle = i * goldenAngle + .21 * random();
     const radius = (.078 + random() ** .85 * .143) * (1 - .36 * t);
     const colorIndex = random() < .59 ? Math.floor(random() * 3) : 3 + Math.floor(random() * 4);
-    crownSurface(y, angle, .04 - .245 * random() - .045 * crownRadius(y), base);
+    surface(y, angle, radius * (.37 + random() * .31), base);
     const mesh = i % 2 === 0 ? metallic : blownGlass;
     stencil.position.copy(base);
     stencil.rotation.set((random() - .5) * .24, angle, 0);
@@ -63,8 +64,9 @@ export function createOrnaments(random: Random) {
       metal.envMap = glass.envMap = hardware.envMap = texture;
     },
     setLight(fraction: number) {
-      metal.envMapIntensity = .48 + fraction * 1.55;
-      glass.envMapIntensity = .46 + fraction * 1.47;
+      metal.envMapIntensity = .10 + fraction * 1.68;
+      glass.envMapIntensity = .075 + fraction * 1.59;
+      hardware.envMapIntensity = .11 + fraction * .72;
     },
   };
 }

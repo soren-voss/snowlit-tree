@@ -8,15 +8,16 @@ import type { Random } from '../core/random';
 import { linearColor } from '../textures/procedural';
 
 const TAU = 2 * Math.PI;
-const CABIN_X = 4.65;
-const CABIN_Z = -25;
+const CABIN_X = 6.13;
+const CABIN_Z = -37;
 
 export function groundHeight(x: number, z: number): number {
   const r = Math.hypot(x, z);
   const outer = MathUtils.smoothstep(r, 3.9, 13);
   const ripples = 0.06 * Math.sin(x * 0.53 - z * 0.41) * Math.sin(z * 0.47) + 0.035 * Math.sin(x * 1.13 + z * 0.63);
   const drifts = 0.64 * Math.sin(x * 0.186 + z * 0.31) + 0.31 * Math.cos(x * 0.52 - z * 0.21);
-  return ripples + outer * (drifts - 0.18);
+  const cabinHill = 10.15 * Math.exp(-((x - CABIN_X) ** 2 + (z - CABIN_Z) ** 2) / 105);
+  return ripples + outer * (drifts - 0.18) + cabinHill;
 }
 
 function createGround() {
@@ -148,9 +149,8 @@ function createForest(random: Random): Group {
       let angle = (i + random()) / count * TAU;
       let radius = [21, 31, 44][layer] + random() * (layer * 2.3 + 5.4);
       const cabinBearing = Math.atan2(CABIN_X, CABIN_Z);
-      if (layer === 0 && Math.abs(angle - cabinBearing) < 0.19) {
-        radius += 8;
-        angle += 0.045;
+      if (layer < 2 && Math.abs(angle - cabinBearing) < 0.25) {
+        radius += 22 - layer * 9;
       }
       const x = Math.sin(angle) * radius;
       const z = Math.cos(angle) * radius;
@@ -173,6 +173,7 @@ function cabin(): Group {
   const group = new Group();
   group.position.set(CABIN_X, groundHeight(CABIN_X, CABIN_Z) - 0.1, CABIN_Z);
   group.rotation.y = -0.23;
+  group.scale.setScalar(.77);
   const wood = new MeshStandardMaterial({ color: 0x453139, roughness: .93 });
   const endWood = new MeshStandardMaterial({ color: 0x5a3e3b, roughness: .96 });
   const trim = new MeshStandardMaterial({ color: 0x30242b, roughness: .85 });

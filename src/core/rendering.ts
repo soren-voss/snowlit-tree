@@ -1,9 +1,9 @@
 import {
-  HalfFloatType, NoToneMapping, PCFShadowMap, SRGBColorSpace, WebGLRenderer,
+  HalfFloatType, NoToneMapping, PCFShadowMap, SRGBColorSpace, Uniform, WebGLRenderer,
 } from 'three';
 import type { DirectionalLight, Object3D, PerspectiveCamera, Scene, Vector3 } from 'three';
 import {
-  BlendFunction, BloomEffect, DepthOfFieldEffect, EffectComposer, EffectPass, NoiseEffect,
+  BlendFunction, BloomEffect, DepthOfFieldEffect, Effect, EffectComposer, EffectPass, NoiseEffect,
   RenderPass, SMAAEffect, SMAAPreset, ToneMappingEffect, ToneMappingMode, VignetteEffect,
 } from 'postprocessing';
 import { settings } from './quality';
@@ -16,6 +16,7 @@ export class Rendering {
   private readonly depth: DepthOfFieldEffect;
   private readonly depthPass: EffectPass;
   private readonly grain: NoiseEffect;
+  private readonly exposure = new Uniform(1);
   private readonly smaaPass: EffectPass;
   private focus: Object3D | Vector3 | null = null;
   private quality: Quality = 'high';
@@ -31,7 +32,7 @@ export class Rendering {
 
     this.composer = new EffectComposer(this.renderer, { frameBufferType: this.hdr ? HalfFloatType : undefined });
     this.composer.addPass(new RenderPass(scene, camera));
-    this.depth = new DepthOfFieldEffect(camera, { focusDistance: 10, focusRange: 2.6, bokehScale: 2, resolutionScale: 0.5 });
+    this.depth = new DepthOfFieldEffect(camera, { focusDistance: 10, focusRange: 1.25, bokehScale: 3.1, resolutionScale: 0.5 });
     this.depth.target = camera.position.clone();
     this.depthPass = new EffectPass(camera, this.depth);
     this.depthPass.enabled = false;
@@ -45,11 +46,16 @@ export class Rendering {
     this.smaaPass = new EffectPass(camera, new SMAAEffect({ preset: SMAAPreset.MEDIUM }));
     this.composer.addPass(this.smaaPass);
 
+    const exposure = new Effect('SceneExposure', `
+      uniform float gain;
+      void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
+        outputColor = vec4(inputColor.rgb * gain, inputColor.a);
+      }`, { blendFunction: BlendFunction.SRC, uniforms: new Map([['gain', this.exposure]]) });
     const tone = new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC });
     const vignette = new VignetteEffect({ offset: 0.35, darkness: 0.47 });
     this.grain = new NoiseEffect({ premultiply: true, blendFunction: BlendFunction.SOFT_LIGHT });
     this.grain.blendMode.opacity.value = 0.12;
-    this.composer.addPass(new EffectPass(camera, tone, vignette, this.grain));
+    this.composer.addPass(new EffectPass(camera, exposure, tone, vignette, this.grain));
   }
 
   setQuality(quality: Quality, moon: DirectionalLight): void {
@@ -87,6 +93,10 @@ export class Rendering {
   clearFocus(): void {
     this.focus = null;
     this.depthPass.enabled = false;
+  }
+
+  setExposure(gain: number): void {
+    this.exposure.value = gain;
   }
 
   render(delta: number): void {
