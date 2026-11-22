@@ -1,0 +1,210 @@
+import {
+  BufferGeometry, Color, CylinderGeometry, DoubleSide, Float32BufferAttribute, Group, IcosahedronGeometry,
+  InstancedMesh, MathUtils, Matrix4, Mesh, MeshStandardMaterial, Object3D, Texture, Vector3,
+} from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import type { Random } from '../../core/random';
+import { CROWN_BASE, TAU, TREE_TOP, crownCenter, crownRadius } from './shape';
+
+interface Foliage {
+  matrix: Matrix4;
+  color: Color;
+  priority: number;
+}
+
+interface Branch {
+  origin: Vector3;
+  angle: number;
+  radius: number;
+  bend: number;
+  droop: number;
+}
+
+function branchPoint(branch: Branch, along: number): Vector3 {
+  const bearing = branch.angle + branch.bend * along;
+  const distance = branch.radius * along;
+  const y = branch.origin.y - branch.droop * Math.sin(along * 2.49) + branch.radius * along ** 5 * 0.062;
+  return new Vector3(branch.origin.x + Math.sin(bearing) * distance, y, branch.origin.z + Math.cos(bearing) * distance);
+}
+
+function needleCard(): BufferGeometry {
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new Float32BufferAttribute([
+    -.33, 0, 0, .33, 0, 0, -.50, .48, .055, .50, .48, .055, -.40, 1, .13, .40, 1, .13,
+  ], 3));
+  geometry.setAttribute('uv', new Float32BufferAttribute([0, 0, 1, 0, 0, .48, 1, .48, 0, 1, 1, 1], 2));
+  geometry.setIndex([0, 1, 2, 1, 3, 2, 2, 3, 4, 3, 5, 4]);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function snowPatch(): BufferGeometry {
+  const geometry = new IcosahedronGeometry(1, 3);
+  const points = geometry.attributes.position;
+  for (let i = 0; i < points.count; i++) {
+    const x = points.getX(i);
+    const y = points.getY(i);
+    const z = points.getZ(i);
+    const lobes = 1 + .12 * Math.sin(x * 7 + z * 2 + 1) + .082 * Math.cos(z * 11 - x * 4);
+    points.setXYZ(i, x * lobes, y * (y < 0 ? .44 : lobes) + .057 * Math.sin(z * 9 + x * 2), z * lobes);
+  }
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+export function createEvergreen(texture: Texture, random: Random) {
+  const group = new Group();
+  const foliage: Foliage[] = [];
+  const patches: Foliage[] = [];
+  const wood: BufferGeometry[] = [];
+  const standIn = new Object3D();
+  const upright = new Vector3(0, 1, 0);
+  const right = new Vector3();
+  const normal = new Vector3();
+  const axis = new Vector3();
+  const basis = new Matrix4();
+  const greenInside = new Color('#1F4D3A');
+  const greenTips = new Color('#3E7A5C');
+  const frost = new Color('#9CB9AF');
+  const lightSnow = new Color('#D0DFEA');
+  const localLight = { value: 0 };
+
+  function fan(start: Vector3, angle: number, rise: number, length: number, spread: number, tint: number, detail: boolean) {
+    axis.set(Math.sin(angle), rise, Math.cos(angle)).normalize();
+    right.crossVectors(axis, upright).normalize();
+    normal.crossVectors(right, axis);
+    basis.makeBasis(right, axis, normal);
+    standIn.quaternion.setFromRotationMatrix(basis);
+    standIn.rotateY((random() - 0.5) * (detail ? 2.2 : 1.12));
+    standIn.position.copy(start);
+    standIn.scale.set(spread, length, length);
+    standIn.updateMatrix();
+    const color = greenInside.clone().lerp(greenTips, tint)
+      .lerp(frost, tint ** 4 * (random() < .18 ? .58 : .12))
+      .multiplyScalar(.82 + .36 * random());
+    foliage.push({ matrix: standIn.matrix.clone(), color, priority: detail ? .56 + random() * .44 : random() * .5 });
+  }
+
+  function cap(location: Vector3, bearing: number, length: number, width: number, height: number) {
+    standIn.position.copy(location);
+    standIn.rotation.set((random() - .5) * .45, bearing, (random() - .5) * .28, 'YXZ');
+    standIn.scale.set(width, height, length);
+    standIn.updateMatrix();
+    patches.push({ matrix: standIn.matrix.clone(), color: lightSnow.clone().multiplyScalar(.72 + random() * .28), priority: random() });
+  }
+
+  function twig(start: Vector3, end: Vector3, radius: number, taper: number) {
+    axis.subVectors(end, start);
+    const piece = new CylinderGeometry(radius * taper, radius, axis.length(), 7);
+    standIn.quaternion.setFromUnitVectors(upright, axis.normalize());
+    standIn.position.copy(start).lerp(end, .5);
+    standIn.scale.setScalar(1);
+    standIn.updateMatrix();
+    wood.push(piece.applyMatrix4(standIn.matrix));
+  }
+
+  const trunkSegments = 12;
+  for (let i = 0; i < trunkSegments; i++) {
+    const a = (i / trunkSegments) * TREE_TOP;
+    const b = ((i + 1) / trunkSegments) * TREE_TOP + .006;
+    const radius = .024 + .27 * (1 - a / TREE_TOP) ** 1.35;
+    twig(crownCenter(a - .065, new Vector3()), crownCenter(b, new Vector3()), radius, i === trunkSegments - 1 ? .26 : .89);
+  }
+
+  for (let layer = 0; layer < 26; layer++) {
+    const t = layer / 25;
+    const nominalY = CROWN_BASE + .42 + t * (TREE_TOP - CROWN_BASE - .54);
+    const branchCount = Math.round(8 + 6 * (1 - t) + random() * 1.7);
+    const startAngle = layer * 2.4 + random() * .37;
+    for (let j = 0; j < branchCount; j++) {
+      const angle = startAngle + (j + .86 * (random() - .5)) / branchCount * TAU;
+      const y = nominalY + (random() - .5) * (.25 - .15 * t) + Math.sin(angle * 3 + layer) * .067;
+      const length = crownRadius(y - .18) * (.71 + random() * .24) * (1 + .075 * Math.sin(angle * 3 + y));
+      const branch: Branch = {
+        origin: crownCenter(y, new Vector3()), angle, radius: length,
+        bend: (random() - .5) * .26, droop: length * (.075 + random() * .115),
+      };
+      if (length > .64) {
+        twig(branch.origin, branchPoint(branch, .50), length * .034, .60);
+        twig(branchPoint(branch, .50), branchPoint(branch, .93), length * .021, .10);
+      }
+
+      const richest = Math.round(4 + 4 * (1 - t));
+      for (let i = 0; i < richest; i++) {
+        const s = .20 + .75 * i / (richest - 1);
+        const root = branchPoint(branch, s);
+        const bearing = angle + branch.bend * s;
+        const size = Math.max(.20, (.46 - .19 * s) * length + .09);
+        const tint = Math.min(1, s * .85 + (random() - .5) * .16 + t * .11);
+        fan(root, bearing, .25 + .15 * random(), size, size * (.59 + .25 * random()), tint, false);
+        fan(root, bearing + .16, -.20 + .19 * random(), size * .79, size * .52, tint, true);
+        for (const side of [-1, 1]) {
+          const offset = .68 + .39 * random() + .19 * (1 - s);
+          const fanLength = size * (.82 + .65 * random());
+          fan(root, bearing + side * offset, (random() - .5) * .34, fanLength, fanLength * (.52 + .28 * random()), tint, false);
+          fan(root, bearing + side * (.28 + offset), .29 + random() * .29, fanLength * .66, fanLength * .50, tint * .88, true);
+        }
+        const dusting = .18 + .18 * Math.sin(2 * angle + y * .92) ** 2;
+        if (s > .37 && random() < dusting) {
+          const p = root.clone();
+          p.x += .08 * Math.sin(bearing);
+          p.z += .08 * Math.cos(bearing);
+          p.y += .045 + size * .13;
+          cap(p, bearing + (random() - .5) * .66, size * (.29 + .29 * random()), size * (.14 + .22 * random()), size * (.075 + .085 * random()));
+        }
+      }
+      const tip = branchPoint(branch, .96);
+      const size = Math.max(.18, length * .24);
+      fan(tip, angle + branch.bend, .44 + random() * .27, size, size * .61, .95, false);
+      fan(tip, angle + branch.bend + .36, .23, size * .8, size * .53, .92, true);
+    }
+  }
+  for (let i = 0; i < 16; i++) {
+    const y = TREE_TOP - .69 + i * .038;
+    fan(crownCenter(y, new Vector3()), 2.4 * i, 2.5 + random(), .20 + random() * .35, .11 + random() * .08, .8, false);
+  }
+
+  const branchGeometry = mergeGeometries(wood);
+  for (const piece of wood) piece.dispose();
+  const bark = new Mesh(branchGeometry, new MeshStandardMaterial({ color: 0x4b3930, roughness: .95 }));
+  bark.castShadow = true;
+  bark.receiveShadow = true;
+
+  const needles = new MeshStandardMaterial({ color: 0xffffff, map: texture, roughness: .85, side: DoubleSide, alphaTest: .34 });
+  needles.onBeforeCompile = shader => {
+    shader.uniforms.crownLight = localLight;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 sprayWorld;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\nsprayWorld = (instanceMatrix * vec4(transformed, 1.)).xyz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 sprayWorld;\nuniform float crownLight;')
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        float shade = .18 + .82 * pow(.5 + .5 * sin(sprayWorld.y * 9. + sprayWorld.x * 6. + sprayWorld.z * 4.), 2.5);
+        totalEmissiveRadiance += diffuseColor.rgb * vec3(1., .68, .37) * shade * crownLight * .79;`);
+  };
+
+  function instances(items: Foliage[], geometry: BufferGeometry, material: MeshStandardMaterial): InstancedMesh {
+    items.sort((a, b) => a.priority - b.priority);
+    const mesh = new InstancedMesh(geometry, material, items.length);
+    for (const [index, item] of items.entries()) {
+      mesh.setMatrixAt(index, item.matrix);
+      mesh.setColorAt(index, item.color);
+    }
+    mesh.computeBoundingSphere();
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return mesh;
+  }
+
+  const sprays = instances(foliage, needleCard(), needles);
+  const snow = instances(patches, snowPatch(), new MeshStandardMaterial({ roughness: .89 }));
+  group.add(bark, sprays, snow);
+  return {
+    group,
+    localLight,
+    setDensity(fraction: number) {
+      sprays.count = Math.round(foliage.length * fraction);
+      snow.count = Math.ceil(patches.length * MathUtils.lerp(.42, 1, fraction));
+    },
+  };
+}

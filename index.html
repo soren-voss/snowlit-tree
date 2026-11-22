@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#070d22" />
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/src/ui/stage.css" />
+    <title>雪夜礼物树</title>
+  </head>
+  <body>
+    <main id="stage" aria-label="雪夜礼物树">
+      <canvas id="scene" aria-label="可旋转欣赏的雪夜圣诞树"></canvas>
+      <div id="loading" class="veil" role="status" aria-label="正在准备雪夜场景"><span class="loading-star"></span></div>
+      <button id="ignite" class="veil invitation" type="button" hidden><span>轻触点亮</span></button>
+      <p id="error" class="veil" role="alert" hidden></p>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

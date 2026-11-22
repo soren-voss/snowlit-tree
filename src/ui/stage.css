@@ -1,0 +1,107 @@
+:root {
+  color-scheme: dark;
+  background: #070d22;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html, body, #stage {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
+#stage { position: relative; isolation: isolate; }
+
+#scene {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  outline: none;
+}
+
+#stage[data-phase="free"] #scene { cursor: grab; }
+#stage[data-phase="free"] #scene:active { cursor: grabbing; }
+
+.veil {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+}
+
+#loading {
+  background: radial-gradient(ellipse at center, #101c35, #070d22 65%);
+  pointer-events: none;
+  transition: opacity 750ms ease;
+  z-index: 2;
+}
+
+.loading-star {
+  --load: .15;
+  position: relative;
+  width: 2.25rem;
+  height: 2.25rem;
+  background: radial-gradient(circle, #fff6d2, #dab470 32%, #c18e4f);
+  clip-path: polygon(50% 0, 58% 42%, 100% 50%, 58% 58%, 50% 100%, 42% 58%, 0 50%, 42% 42%);
+  opacity: var(--load);
+  transition: opacity 370ms ease-out;
+}
+
+#loading::before {
+  content: '';
+  position: absolute;
+  width: 12rem;
+  aspect-ratio: 1;
+  background: radial-gradient(circle, #e4b66f26, #e4b66f06 35%, transparent 66%);
+}
+
+#loading[data-done] { opacity: 0; }
+
+.invitation {
+  border: 0;
+  padding: 0;
+  width: 100%;
+  color: #f5d89f;
+  background: radial-gradient(ellipse at 50% 50%, #070d2259, transparent 43%);
+  cursor: pointer;
+  animation: invite-in 850ms ease both;
+}
+
+.invitation span {
+  position: relative;
+  padding: 1rem 1.3rem 1rem 1.65rem;
+  font: 400 clamp(1.35rem, 2.6vw, 1.85rem) / 1.2 'Songti SC', 'Noto Serif CJK SC', SimSun, serif;
+  letter-spacing: .35em;
+  text-shadow: 0 0 16px #d0ab67b0, 0 2px 8px #030610;
+  animation: breathe 3.8s ease-in-out infinite alternate;
+}
+
+.invitation span::after {
+  content: '';
+  position: absolute;
+  left: 28%;
+  right: 28%;
+  bottom: .45rem;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #f0cf8c87, transparent);
+}
+
+.invitation:focus-visible { outline: 0; }
+.invitation:focus-visible span { outline: 1px solid #f5d89f; outline-offset: .3rem; }
+.invitation[data-dismissed] { animation: invite-out 460ms ease both; pointer-events: none; }
+#error { color: #eed9ba; padding: 2rem; text-wrap: pretty; text-align: center; font-family: system-ui, sans-serif; }
+
+@keyframes breathe { from { opacity: .63; } to { opacity: 1; } }
+@keyframes invite-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes invite-out { to { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .invitation span { animation: none; }
+}
