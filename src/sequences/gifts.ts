@@ -9,6 +9,14 @@ import { groundHeight } from '../scene/landscape';
 import { GiftCard } from '../ui/gift-card';
 
 type Inspection = 'opening' | 'card' | 'closing' | 'rewrapping';
+export type GiftCue = 'shake' | 'release' | 'lid' | 'burst' | 'card' | 'close' | 'rewrap' | 'closed';
+
+export interface GiftHooks {
+  imageFor(gift: GiftBox['data']): string | undefined;
+  /** Return true to consume a tap on a box instead of opening it (used by the editor to select gifts). */
+  pick?(box: GiftBox): boolean;
+  cue?(name: GiftCue, box: GiftBox): void;
+}
 
 function approach(box: GiftBox): CameraPose {
   const outward = new Vector3(box.anchor.x, 0, box.anchor.z).normalize();
@@ -38,6 +46,7 @@ function cameraMove(view: SceneCamera, start: CameraPose, end: CameraPose, secon
 
 export class GiftExperience {
   dim = 0;
+  selected?: string;
   private readonly card: GiftCard;
   private readonly ray = new Raycaster();
   private readonly pointer = new Vector2();
@@ -51,13 +60,14 @@ export class GiftExperience {
   private closePose?: CameraPose;
 
   constructor(
-    private readonly boxes: readonly GiftBox[],
+    private boxes: readonly GiftBox[],
     private readonly reveal: GiftReveal,
     private readonly view: SceneCamera,
     private readonly rendering: Rendering,
     private readonly canvas: HTMLCanvasElement,
     dialog: HTMLDialogElement,
     private readonly canPick: () => boolean,
+    private readonly hooks: GiftHooks,
   ) {
     for (const box of boxes) this.byHit.set(box.hit, box);
     this.card = new GiftCard(dialog, () => this.close(), () => { if (this.active) this.rewrap(this.active.data.id); });
@@ -69,6 +79,23 @@ export class GiftExperience {
     canvas.addEventListener('pointerleave', () => this.highlight(undefined));
   }
 
+  get busy(): boolean {
+    return this.state !== undefined;
+  }
+
+  get allOpened(): boolean {
+    return this.boxes.length > 0 && this.boxes.every(box => box.opened);
+  }
+
+  /** Swaps in a rebuilt set of boxes; only while nothing is being inspected. */
+  setBoxes(boxes: readonly GiftBox[]): void {
+    this.boxes = boxes;
+    this.byHit.clear();
+    for (const box of boxes) this.byHit.set(box.hit, box);
+    this.hovered = undefined;
+    this.pressed = undefined;
+  }
+
   summary(): { id: string; name: string; opened: boolean }[] {
     return this.boxes.map(box => ({ id: box.data.id, name: box.data.name, opened: box.opened }));
   }
@@ -77,7 +104,7 @@ export class GiftExperience {
     this.reveal.setPixelRatio(ratio);
     this.reveal.tick(delta);
     if (this.timeline?.update(delta)) this.timeline = undefined;
-    for (const box of this.boxes) box.update(time, delta, this.hovered === box);
+    for (const box of this.boxes) box.update(time, delta, this.hovered === box || this.selected === box.data.id);
   }
 
   open(id: string): boolean {
@@ -90,10 +117,12 @@ export class GiftExperience {
     this.highlight(undefined);
     this.pressed = undefined;
     this.contacts.clear();
-    this.card.prepare(box.data);
+    const image = this.hooks.imageFor(box.data);
+    this.card.prepare(box.data, image);
     const start = this.view.beginInspection();
     this.closePose = box.opened ? start : approach(box);
-    this.reveal.prepare(box);
+    this.reveal.prepare(box, image);
+    const cue = (name: GiftCue) => call(() => this.hooks.cue?.(name, box));
     if (box.opened) {
       this.rendering.setFocus(box.openPoint);
       this.dim = 1;
@@ -103,14 +132,17 @@ export class GiftExperience {
 
     this.timeline = new Timeline(sequence(
       cameraMove(this.view, start, this.closePose, 1.2),
+      cue('shake'),
       tween(.56, value => {
         box.wrap.rotation.z = Math.sin(value * Math.PI * 4) * Math.sin(value * Math.PI) * .106;
         box.wrap.rotation.y = -Math.sin(value * Math.PI * 4) * Math.sin(value * Math.PI) * .07;
       }),
+      cue('release'),
       tween(.62, value => { box.release = value; }, ease.smooth),
+      cue('lid'),
       parallel(
         tween(.8, value => { box.lidTravel = value; }, ease.smooth),
-        sequence(wait(.3), call(() => this.reveal.burstOut()), tween(.5, value => this.reveal.beamStrength(Math.sin(value * Math.PI * .5)))),
+        sequence(wait(.3), call(() => this.reveal.burstOut()), cue('burst'), tween(.5, value => this.reveal.beamStrength(Math.sin(value * Math.PI * .5)))),
       ),
       call(() => this.rendering.setFocus(this.reveal.card)),
       parallel(
@@ -149,11 +181,13 @@ export class GiftExperience {
   private showCard(box: GiftBox): void {
     box.opened = true;
     this.state = 'card';
+    this.hooks.cue?.('card', box);
     this.card.show();
   }
 
   private dismiss(box: GiftBox, pose: CameraPose, repack: boolean): void {
     this.state = repack ? 'rewrapping' : 'closing';
+    this.hooks.cue?.(repack ? 'rewrap' : 'close', box);
     this.card.startClosing();
     this.timeline = new Timeline(sequence(
       wait(.23),
@@ -178,7 +212,7 @@ export class GiftExperience {
         cameraMove(this.view, pose, this.view.orbitPose(), .68),
         repack ? this.repack(box) : wait(.68),
       ),
-      call(() => { this.view.endInspection(); this.finish(); }),
+      call(() => { this.view.endInspection(); this.finish(); this.hooks.cue?.('closed', box); }),
     ));
   }
 
@@ -240,7 +274,7 @@ export class GiftExperience {
     this.pressed = undefined;
     const box = this.pick(event);
     if (press?.id === event.pointerId && press.box === box && Math.hypot(event.clientX - press.x, event.clientY - press.y) <= 8) {
-      this.open(press.box.data.id);
+      if (!this.hooks.pick?.(press.box)) this.open(press.box.data.id);
     } else this.highlight(event.pointerType !== 'touch' && this.contacts.size === 0 ? box : undefined);
   };
 

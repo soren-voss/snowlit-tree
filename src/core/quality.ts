@@ -2,9 +2,9 @@ const tiers = ['low', 'medium', 'high'] as const;
 export type Quality = typeof tiers[number];
 
 export const settings = {
-  low:    { maxRatio: 0.9, ratioScale: 0.78, needles: 0.53, snow: 0.43, shadows: 0, bloomLevels: 4, grain: false, giftParticles: 110 },
-  medium: { maxRatio: 1.25, ratioScale: 0.9, needles: 0.76, snow: 0.71, shadows: 1024, bloomLevels: 5, grain: true, giftParticles: 280 },
-  high:   { maxRatio: 1.65, ratioScale: 1, needles: 1, snow: 1, shadows: 2048, bloomLevels: 6, grain: true, giftParticles: 540 },
+  low:    { maxRatio: 0.9, ratioScale: 0.78, needles: 0.53, snow: 0.43, shadows: 0, bloomLevels: 4, grain: false, giftParticles: 110, magicParticles: 9000 },
+  medium: { maxRatio: 1.25, ratioScale: 0.9, needles: 0.76, snow: 0.71, shadows: 1024, bloomLevels: 5, grain: true, giftParticles: 280, magicParticles: 18000 },
+  high:   { maxRatio: 1.65, ratioScale: 1, needles: 1, snow: 1, shadows: 2048, bloomLevels: 6, grain: true, giftParticles: 540, magicParticles: 36000 },
 } satisfies Record<Quality, object>;
 
 export class QualityMonitor {

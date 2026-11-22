@@ -5,6 +5,8 @@ import {
 } from 'three';
 import type { Camera, Texture } from 'three';
 import type { Random } from '../../core/random';
+import type { Theme } from '../theme';
+import { cutHeight, dissolvable } from './dissolve';
 import { CROWN_BASE, TAU, TREE_TOP, crownCenter, crownRadius } from './shape';
 import type { CrownSurface } from './shape';
 
@@ -36,11 +38,16 @@ function layoutBulbs(random: Random, surface: CrownSurface): Bulb[] {
 
 function bulbMeshes(bulbs: Bulb[], random: Random) {
   const geometry = new IcosahedronGeometry(1, 2);
-  const uniforms = { time: { value: 0 }, progress: { value: 0 }, mode: { value: 0 }, ratio: { value: 1 } };
+  const uniforms = {
+    time: { value: 0 }, progress: { value: 0 }, mode: { value: 0 }, ratio: { value: 1 }, cutHeight,
+    tintDeep: { value: new Vector3(1, .62, .26) }, tintBright: { value: new Vector3(1, .8, .52) },
+  };
   const meta = new Float32Array(bulbs.length * 4);
   bulbs.forEach((bulb, i) => meta.set([bulb.order, random(), random(), bulb.depth], i * 4));
   const rhythm = `
-    uniform float time, progress, mode;
+    uniform float time, progress, mode, cutHeight;
+    uniform vec3 tintDeep, tintBright;
+    varying float vCutY;
     float bulbLevel(vec4 b) {
       float on = smoothstep(b.x - .004, b.x + .012, progress);
       float flicker = pow(.5 + .5 * sin(time * (2.3 + 4. * b.z) + b.y * 88.), 16.);
@@ -49,7 +56,7 @@ function bulbMeshes(bulbs: Bulb[], random: Random) {
       float twinkle = .35 + .25 * (.5 + .5 * sin(time * (1.4 + b.y) + b.y * 40.)) + .8 * flicker;
       return on * (mode < .5 ? breath : mode < 1.5 ? chase : twinkle);
     }
-    vec3 bulbTint(vec4 b) { return mix(vec3(1., .62, .26), vec3(1., .80, .52), b.z); }`;
+    vec3 bulbTint(vec4 b) { return mix(tintDeep, tintBright, b.z); }`;
 
   const core = new ShaderMaterial({
     uniforms,
@@ -57,8 +64,10 @@ function bulbMeshes(bulbs: Bulb[], random: Random) {
       attribute vec4 bulb;
       varying vec4 vBulb;
       varying vec3 vNormal;
+      varying float vCutY;
       void main() {
         vBulb = bulb;
+        vCutY = (modelMatrix * instanceMatrix * vec4(position, 1.)).y;
         vNormal = normalize(normalMatrix * mat3(instanceMatrix) * normal);
         gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.);
       }`,
@@ -67,6 +76,7 @@ function bulbMeshes(bulbs: Bulb[], random: Random) {
       varying vec4 vBulb;
       varying vec3 vNormal;
       void main() {
+        if (vCutY < cutHeight) discard;
         float level = bulbLevel(vBulb);
         float face = .55 + .45 * max(0., vNormal.z);
         vec3 off = vec3(.05, .045, .035);
@@ -95,8 +105,10 @@ function bulbMeshes(bulbs: Bulb[], random: Random) {
       uniform float ratio;
       attribute vec4 bulb;
       varying vec4 vBulb;
+      varying float vCutY;
       void main() {
         vBulb = bulb;
+        vCutY = (modelMatrix * vec4(position, 1.)).y;
         vec4 eye = modelViewMatrix * vec4(position, 1.);
         gl_Position = projectionMatrix * eye;
         gl_PointSize = ratio * clamp(150. / max(1., -eye.z), 4., 30.) * mix(.6, 1., bulb.w);
@@ -105,6 +117,7 @@ function bulbMeshes(bulbs: Bulb[], random: Random) {
       ${rhythm}
       varying vec4 vBulb;
       void main() {
+        if (vCutY < cutHeight) discard;
         float d = length(gl_PointCoord - .5) * 2.;
         float glow = exp(-d * d * 7.) * .9 + exp(-d * 3.2) * .22;
         gl_FragColor = vec4(bulbTint(vBulb) * 1.5, glow * bulbLevel(vBulb) * vBulb.w * (1. - smoothstep(.8, 1., d)));
@@ -194,6 +207,7 @@ function beadGarland(random: Random, surface: CrownSurface) {
         float shimmer = pow(.5 + .5 * sin(vGarland * 900. - time * 2.4), 18.) * step(vGarland, progress);
         totalEmissiveRadiance += vec3(1., .62, .22) * (front * 2.2 + shimmer * .55);`);
   };
+  dissolvable(material, 'garland');
   const mesh = new InstancedMesh(geometry, material, beads.length);
   const stencil = new Object3D();
   beads.forEach((bead, i) => {
@@ -272,8 +286,18 @@ function topper(glowTexture: Texture) {
   crownCenter(TREE_TOP + .36, group.position);
   halo.renderOrder = rays.renderOrder = 3;
   group.add(star, halo, rays);
+  const home = group.position.clone();
   return {
     group,
+    home,
+    setTheme(theme: Theme) {
+      gold.color.set(theme.star.face);
+      gold.emissive.set(theme.star.emissive);
+      rimGold.color.set(theme.star.rim);
+      rimGold.emissive.set(theme.star.emissive);
+      halo.material.color.setRGB(...theme.star.halo).multiplyScalar(1.6);
+      rays.material.color.setRGB(...theme.star.halo).lerp(new Color(1, 1, 1), .4).multiplyScalar(1.4);
+    },
     update(time: number, level: number, flare: number, camera?: Camera) {
       if (camera) star.rotation.y = Math.atan2(camera.position.x - group.position.x, camera.position.z - group.position.z) + .32 * Math.sin(time * .5);
       gold.emissiveIntensity = (.8 + .15 * Math.sin(time * 1.3)) * level + flare * .9;
@@ -309,8 +333,19 @@ export function createIllumination(random: Random, glow: Texture, surface: Crown
     group,
     state,
     glowMap: bulbGlowMap(layout),
+    star: star.group,
+    starHome: star.home,
     setReflection(texture: Texture) {
       garland.material.envMap = texture;
+    },
+    setTheme(theme: Theme) {
+      bulbs.uniforms.tintDeep.value.set(...theme.bulbDeep);
+      bulbs.uniforms.tintBright.value.set(...theme.bulbBright);
+      garland.material.color.set(theme.garland);
+      star.setTheme(theme);
+    },
+    setShadows(enabled: boolean) {
+      garland.mesh.castShadow = enabled;
     },
     setLightMode(mode: LightMode) {
       const index = modes.indexOf(mode);

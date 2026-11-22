@@ -1,5 +1,5 @@
 import {
-  BackSide, BufferGeometry, Color, Float32BufferAttribute, Mesh, Points, ShaderMaterial, SphereGeometry, Vector3,
+  AdditiveBlending, BackSide, BufferGeometry, Color, DoubleSide, Float32BufferAttribute, Mesh, Points, ShaderMaterial, SphereGeometry, Vector3,
 } from 'three';
 import type { Random } from '../core/random';
 
@@ -96,11 +96,79 @@ export function createSky(random: Random) {
   });
   const points = new Points(geometry, material);
   points.renderOrder = 1;
+  const meteors = meteorShower(random);
   return {
-    objects: [sky, points],
-    update(time: number, ratio: number) {
+    objects: [sky, points, meteors.mesh],
+    /** Starts a meteor shower in the part of the sky behind the tree, as seen from `bearing`. */
+    shower(bearing: number) {
+      meteors.mesh.rotation.y = bearing + Math.PI;
+      meteors.uniforms.shower.value = 0;
+      meteors.mesh.visible = true;
+    },
+    update(time: number, ratio: number, delta = 0) {
       material.uniforms.time.value = time;
       material.uniforms.pixelScale.value = ratio;
+      if (meteors.mesh.visible) {
+        meteors.uniforms.shower.value += delta;
+        if (meteors.uniforms.shower.value > 9) meteors.mesh.visible = false;
+      }
     },
   };
+}
+
+/** Streaks that cross the upper sky for a few seconds during the finale. */
+function meteorShower(random: Random) {
+  const count = 22;
+  const corners: number[] = [], data: number[] = [], indices: number[] = [];
+  for (let i = 0; i < count; i++) {
+    const meteor = [(random() - .5) * 1.9, .3 + random() * .45, random() * 6, random()];
+    const heading = (random() < .5 ? -1 : 1) * (.45 + random() * .5);
+    for (const [along, side] of [[0, -1], [0, 1], [1, -1], [1, 1]]) {
+      corners.push(along, side, heading);
+      data.push(...meteor);
+    }
+    const base = i * 4;
+    indices.push(base, base + 1, base + 2, base + 1, base + 3, base + 2);
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new Float32BufferAttribute(new Float32Array(count * 12), 3));
+  geometry.setAttribute('corner', new Float32BufferAttribute(corners, 3));
+  geometry.setAttribute('meteor', new Float32BufferAttribute(data, 4));
+  geometry.setIndex(indices);
+  const uniforms = { shower: { value: 0 } };
+  const mesh = new Mesh(geometry, new ShaderMaterial({
+    uniforms,
+    vertexShader: `
+      uniform float shower;
+      attribute vec3 corner;
+      attribute vec4 meteor;
+      varying float vFade, vAlong;
+      void main() {
+        float t = shower - meteor.z;
+        float life = 1.1 + meteor.w * .7;
+        float alive = step(0., t) * step(t, life);
+        vec3 start = vec3(sin(meteor.x) * cos(meteor.y), sin(meteor.y), cos(meteor.x) * cos(meteor.y)) * 98.;
+        vec3 east = normalize(vec3(cos(meteor.x), 0., -sin(meteor.x)));
+        vec3 down = normalize(cross(east, start));
+        vec3 dir = normalize(east * cos(corner.z) + down * abs(sin(corner.z)) * 1.4);
+        vec3 head = start + dir * t * (20. + 12. * meteor.w);
+        vec3 side = normalize(cross(dir, head));
+        float len = (6. + 5. * meteor.w) * min(1., t * 3.);
+        vec3 p = head - dir * len * corner.x + side * corner.y * .16 * (1. - corner.x * .9);
+        vFade = alive * smoothstep(0., .12, t) * (1. - smoothstep(life * .55, life, t));
+        vAlong = corner.x;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.);
+      }`,
+    fragmentShader: `
+      varying float vFade, vAlong;
+      void main() {
+        gl_FragColor = vec4(vec3(1., .93, .8) * 2.6, vFade * pow(1. - vAlong, 1.6));
+        #include <colorspace_fragment>
+      }`,
+    transparent: true, depthWrite: false, blending: AdditiveBlending, side: DoubleSide,
+  }));
+  mesh.frustumCulled = false;
+  mesh.visible = false;
+  mesh.renderOrder = 1;
+  return { mesh, uniforms };
 }

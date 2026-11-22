@@ -4,6 +4,8 @@ import {
 } from 'three';
 import type { Texture } from 'three';
 import type { Random } from '../../core/random';
+import type { Theme } from '../theme';
+import { dissolvable } from './dissolve';
 import { CROWN_BASE, TREE_TOP } from './shape';
 import type { CrownSurface } from './shape';
 
@@ -18,15 +20,15 @@ export function createOrnaments(random: Random, surface: CrownSurface) {
   const pearl = new MeshPhysicalMaterial({ metalness: .05, roughness: .3, clearcoat: 1, clearcoatRoughness: .15, iridescence: .45 });
   const hardware = new MeshStandardMaterial({ color: 0xc9a25a, metalness: 1, roughness: .3 });
   const finishes = [
-    { material: mirror, colors: [0x9e1a2c, 0xc0283a, 0xd8a64c, 0xe9cf98, 0x7e1426], share: .56 },
-    { material: satin, colors: [0x8c1b2b, 0xb0263a, 0xc69244, 0xd9be8c], share: .34 },
-    { material: pearl, colors: [0xe8d2a8, 0xd4b483], share: .1 },
+    { material: mirror, palette: 'mirror' as const, share: .56 },
+    { material: satin, palette: 'satin' as const, share: .34 },
+    { material: pearl, palette: 'pearl' as const, share: .1 },
   ];
   const count = 128;
   const stencil = new Object3D();
   const spot = new Vector3();
   const tint = new Color();
-  const plan = finishes.map(finish => ({ ...finish, items: [] as { position: Vector3; radius: number; color: number }[] }));
+  const plan = finishes.map(finish => ({ ...finish, items: [] as { position: Vector3; radius: number; roll: number; brightness: number }[], mesh: undefined as InstancedMesh | undefined }));
   const golden = 2.399963;
   for (let i = 0; i < count; i++) {
     const t = (i + random() * .6) / count;
@@ -39,7 +41,7 @@ export function createOrnaments(random: Random, surface: CrownSurface) {
     let index = 0;
     for (let acc = plan[0].share; roll > acc && index < plan.length - 1; acc += plan[++index].share);
     const finish = plan[index];
-    finish.items.push({ position: spot.clone(), radius, color: finish.colors[Math.floor(random() * finish.colors.length)] });
+    finish.items.push({ position: spot.clone(), radius, roll: random(), brightness: 1 });
   }
 
   const caps = new InstancedMesh(cap, hardware, count);
@@ -53,7 +55,7 @@ export function createOrnaments(random: Random, surface: CrownSurface) {
       stencil.scale.setScalar(item.radius);
       stencil.updateMatrix();
       mesh.setMatrixAt(i, stencil.matrix);
-      mesh.setColorAt(i, tint.set(item.color).multiplyScalar(.9 + .15 * random()));
+      item.brightness = .9 + .15 * random();
 
       stencil.position.y += item.radius * 1.02;
       stencil.scale.set(item.radius * .26, item.radius * .2, item.radius * .26);
@@ -66,14 +68,27 @@ export function createOrnaments(random: Random, surface: CrownSurface) {
       hooks.setMatrixAt(fitting++, stencil.matrix);
     });
     mesh.castShadow = mesh.receiveShadow = true;
+    finish.mesh = mesh;
     group.add(mesh);
   }
   group.add(caps, hooks);
   const materials = [mirror, satin, pearl, hardware];
+  materials.forEach((material, i) => dissolvable(material, `ornament-${i}`));
   return {
     group,
     setReflection(texture: Texture) {
       for (const material of materials) material.envMap = texture;
+    },
+    setTheme(theme: Theme) {
+      hardware.color.set(theme.hardware);
+      for (const finish of plan) {
+        const colors = theme[finish.palette];
+        finish.items.forEach((item, i) => finish.mesh!.setColorAt(i, tint.set(colors[Math.floor(item.roll * colors.length)]).multiplyScalar(item.brightness)));
+        if (finish.mesh?.instanceColor) finish.mesh.instanceColor.needsUpdate = true;
+      }
+    },
+    setShadows(enabled: boolean) {
+      for (const finish of plan) if (finish.mesh) finish.mesh.castShadow = enabled;
     },
     setLight(fraction: number) {
       mirror.envMapIntensity = .18 + fraction * 1.5;

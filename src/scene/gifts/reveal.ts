@@ -4,8 +4,6 @@ import {
 } from 'three';
 import type { PerspectiveCamera, Texture } from 'three';
 import type { Random } from '../../core/random';
-import { presetImage } from '../../data/gifts';
-import type { Gift } from '../../data/gifts';
 import type { GiftBox } from './boxes';
 
 export class GiftReveal {
@@ -18,7 +16,9 @@ export class GiftReveal {
   private readonly materials: MeshBasicMaterial[];
   private age = 0;
 
-  constructor(data: readonly Gift[], random: Random, capacity: number) {
+  private readonly loader = new TextureLoader();
+
+  constructor(random: Random, capacity: number) {
     const frameMaterial = new MeshBasicMaterial({
       color: new Color(0xe8b968).multiplyScalar(1.15), side: DoubleSide, transparent: true, depthWrite: false,
     });
@@ -37,16 +37,6 @@ export class GiftReveal {
     this.print.renderOrder = 5;
     this.card.add(frame, inside, this.print);
     this.card.visible = false;
-
-    const loader = new TextureLoader();
-    for (const item of data) {
-      const art = presetImage(item.image);
-      if (art && !this.prints.has(art)) {
-        const texture = loader.load(art);
-        texture.colorSpace = SRGBColorSpace;
-        this.prints.set(art, texture);
-      }
-    }
 
     const origin = [], motion = [], brightness = [];
     for (let i = 0; i < capacity; i++) {
@@ -129,9 +119,24 @@ export class GiftReveal {
     this.burst.material.uniforms.ratio.value = ratio;
   }
 
-  prepare(box: GiftBox): void {
-    const art = presetImage(box.data.image);
-    this.print.material.map = art ? this.prints.get(art) ?? null : null;
+  /** Loads (once) and crops a photo to the print's 3:2 window, like object-fit: cover. */
+  private printFor(url: string): Texture {
+    let texture = this.prints.get(url);
+    if (!texture) {
+      texture = this.loader.load(url, loaded => {
+        const { width, height } = loaded.image as { width: number; height: number };
+        const aspect = width / height, frame = .68 / .453;
+        loaded.repeat.set(Math.min(1, frame / aspect), Math.min(1, aspect / frame));
+        loaded.offset.set((1 - loaded.repeat.x) / 2, (1 - loaded.repeat.y) / 2);
+      });
+      texture.colorSpace = SRGBColorSpace;
+      this.prints.set(url, texture);
+    }
+    return texture;
+  }
+
+  prepare(box: GiftBox, url: string | undefined): void {
+    this.print.material.map = url ? this.printFor(url) : null;
     this.print.material.needsUpdate = true;
     this.print.visible = this.print.material.map !== null;
     this.burst.position.copy(box.anchor).y += box.height * .89;

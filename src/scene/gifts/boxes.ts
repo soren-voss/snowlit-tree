@@ -2,7 +2,7 @@ import {
   AdditiveBlending, BackSide, BoxGeometry, BufferGeometry, Color, DoubleSide, Float32BufferAttribute, Group, MathUtils,
   Mesh, MeshBasicMaterial, MeshPhysicalMaterial, Quaternion, SphereGeometry, Sprite, SpriteMaterial, Vector3,
 } from 'three';
-import type { Texture } from 'three';
+import type { Material, Texture } from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Random } from '../../core/random';
@@ -17,9 +17,10 @@ const dimensions = {
 } as const;
 const up = new Vector3(0, 1, 0);
 
-/** Hand-placed composition in front of the tree: [bearing, distance from trunk, scale]. */
+/** Gift spots around the tree in order of how prominent they are: [bearing, distance from trunk, scale]. Bearing 0 faces the camera. */
 const SLOTS: [number, number, number][] = [
-  [-.66, 3.3, 1.02], [-.3, 4.02, .98], [.03, 3.32, 1.08], [.38, 4.02, 1], [.7, 3.32, .96], [1.02, 3.72, 1.04],
+  [.03, 3.32, 1.08], [-.3, 4.02, .98], [.38, 4.02, 1], [-.66, 3.3, 1.02], [.7, 3.32, .96], [1.02, 3.72, 1.04],
+  [-1.0, 3.85, 1], [1.4, 3.3, 1], [-1.36, 3.3, 1.04], [1.8, 3.75, .95], [-1.78, 3.7, .98], [2.25, 3.35, 1],
 ];
 /** Non-interactive boxes that dress the sides and back: [bearing, distance, scale, shape, stack-on-previous]. */
 const PROPS: [number, number, number, Gift['box']['shape'], boolean][] = [
@@ -146,7 +147,7 @@ export class GiftBox {
   private readonly spin = new Quaternion();
   private readonly baseYaw = new Quaternion();
 
-  constructor(readonly data: Gift, anchor: Vector3, bearing: number, scale: number, random: Random, glow: Texture, crinkle: Texture) {
+  constructor(public data: Gift, anchor: Vector3, bearing: number, scale: number, random: Random, glow: Texture, crinkle: Texture) {
     const [w, h, d] = dimensions[data.box.shape].map(value => value * scale);
     this.anchor = anchor;
     this.height = h;
@@ -239,6 +240,15 @@ export class GiftBox {
     this.update(0, 0, false);
   }
 
+  dispose(): void {
+    this.root.traverse(node => {
+      const { geometry, material } = node as Partial<Mesh>;
+      if (geometry && !(node instanceof Sprite) && geometry !== glowCore) geometry.dispose();
+      if (material && material !== glowCoreMaterial && material !== hitMaterial) (material as Material).dispose();
+    });
+    this.paper.map?.dispose();
+  }
+
   /** Where the lid lands on the snow, in world space; the lid flips toward it. */
   setLanding(position: Vector3): void {
     this.lidOffset.copy(position).sub(this.anchor).applyAxisAngle(up, -this.root.rotation.y);
@@ -297,9 +307,10 @@ function clear(position: Vector3, radius: number, occupied: readonly Footprint[]
 export function createGiftBoxes(data: readonly Gift[], random: Random, glow: Texture) {
   const crinkle = crinkleTexture(random);
   const occupied: Footprint[] = [];
-  const boxes = data.map((gift, i) => {
-    const [bearing, distance, size] = SLOTS[i % SLOTS.length];
-    const angle = bearing + (i >= SLOTS.length ? Math.PI : 0) + (random() - .5) * .05;
+  const slots = SLOTS.slice(0, Math.min(data.length, SLOTS.length)).sort((a, b) => a[0] - b[0]);
+  const boxes = data.slice(0, SLOTS.length).map((gift, i) => {
+    const [bearing, distance, size] = slots[i];
+    const angle = bearing + (random() - .5) * .05;
     const [w, , d] = dimensions[gift.box.shape];
     const radius = Math.hypot(w * size + .05, d * size + .05) / 2;
     const position = new Vector3();
@@ -313,17 +324,23 @@ export function createGiftBoxes(data: readonly Gift[], random: Random, glow: Tex
   });
 
   const props = new Group();
+  const decor: GiftBox[] = [];
   let below: GiftBox | undefined;
   PROPS.forEach(([bearing, distance, size, shape, stacked], i) => {
     const [color, pattern] = PROP_STYLE[i % PROP_STYLE.length];
-    const gift: Gift = { id: `prop-${i}`, name: '', message: '', image: { kind: 'preset', id: '' }, box: { color, pattern, shape } };
+    const gift: Gift = { id: `prop-${i}`, name: '', message: '', image: { kind: 'none' }, box: { color, pattern, shape } };
     const position = new Vector3(Math.sin(bearing) * distance, 0, Math.cos(bearing) * distance);
-    position.y = groundHeight(position.x, position.z) + .005;
-    if (stacked && below) position.y = below.anchor.y + below.height + Math.min(.13, below.height * .2);
+    const [w, , d] = dimensions[shape];
+    if (stacked ? !below : !clear(position, Math.hypot(w * size + .05, d * size + .05) / 2, occupied)) {
+      if (!stacked) below = undefined;
+      return;
+    }
+    position.y = stacked && below ? below.anchor.y + below.height + Math.min(.13, below.height * .2) : groundHeight(position.x, position.z) + .005;
     const box = new GiftBox(gift, position, bearing + (random() - .5) * 1.2, size, random, glow, crinkle);
     if (!stacked) occupied.push({ position, radius: box.footprint });
     props.add(box.root);
-    below = box;
+    decor.push(box);
+    below = stacked ? undefined : box;
   });
 
   for (const box of boxes) {
@@ -342,5 +359,12 @@ export function createGiftBoxes(data: readonly Gift[], random: Random, glow: Tex
     box.setLanding(landing);
     occupied.push({ position: landing.clone(), radius: box.footprint * .9 });
   }
-  return { boxes, props };
+  return {
+    boxes,
+    props,
+    dispose() {
+      for (const box of [...boxes, ...decor]) box.dispose();
+      crinkle.dispose();
+    },
+  };
 }

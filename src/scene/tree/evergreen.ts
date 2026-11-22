@@ -7,6 +7,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Random } from '../../core/random';
 import type { TreeTextures } from '../../textures/assets';
 import { groundHeight } from '../landscape';
+import { dissolvable } from './dissolve';
 import { CROWN_BASE, TREE_RADIUS, TREE_TOP, crownCenter, crownRadius, measureCrown } from './shape';
 
 /** Pixel rectangles of the scanned fir sprays in the 2048² atlas: [left, top, right, bottom, stemX, stemY]. */
@@ -93,6 +94,7 @@ export function createEvergreen(textures: TreeTextures, random: Random) {
   const group = new Group();
   const cards = new Map<Spray, Card[]>(KINDS.map(kind => [kind, []]));
   const boundary: Vector3[] = [];
+  const samples: Vector3[] = [];
   const wood: BufferGeometry[] = [];
   const point = new Vector3();
   const ahead = new Vector3();
@@ -122,6 +124,7 @@ export function createEvergreen(textures: TreeTextures, random: Random) {
     side.crossVectors(direction, normal).normalize();
     const matrix = new Matrix4().makeBasis(side, direction, normal).scale(new Vector3(length, length, length)).setPosition(origin);
     cards.get(kind)!.push({ matrix, color, priority });
+    samples.push(origin.clone().addScaledVector(direction, length * .5));
     if (priority > .45) boundary.push(origin.clone().addScaledVector(direction, length * .8));
   }
 
@@ -219,6 +222,7 @@ export function createEvergreen(textures: TreeTextures, random: Random) {
     color: 0x8a7766, map: textures.barkColor, normalMap: textures.barkNormal, roughness: .95,
   }));
   bark.castShadow = bark.receiveShadow = true;
+  dissolvable(bark.material, 'bark');
 
   const black = new DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
   black.needsUpdate = true;
@@ -227,6 +231,7 @@ export function createEvergreen(textures: TreeTextures, random: Random) {
     bulbReach: { value: 0 },
     glowStrength: { value: 0 },
     snowAmount: { value: .16 },
+    spill: { value: new Vector3(1, .5, .17) },
   };
   const needles = new MeshStandardMaterial({
     map: textures.twigColor, alphaMap: textures.twigAlpha, normalMap: textures.twigNormal,
@@ -248,6 +253,7 @@ export function createEvergreen(textures: TreeTextures, random: Random) {
       .replace('#include <common>', `#include <common>
         uniform sampler2D bulbGlow;
         uniform float bulbReach, glowStrength, snowAmount;
+        uniform vec3 spill;
         varying vec3 vFoliage;
         varying float vAlong;
         varying float vFacing;
@@ -267,8 +273,10 @@ export function createEvergreen(textures: TreeTextures, random: Random) {
         float bulbs = texture2D(bulbGlow, vec2(bearing, heightFraction)).r;
         float shell = smoothstep(.2, .92, length(vFoliage.xz) / max(.05, crownRadiusAt(vFoliage.y)));
         float reached = smoothstep(heightFraction - .035, heightFraction, bulbReach);
-        totalEmissiveRadiance += diffuseColor.rgb * vec3(1., .5, .17) * bulbs * (.3 + .7 * shell) * reached * glowStrength;`);
+        totalEmissiveRadiance += diffuseColor.rgb * spill * bulbs * (.3 + .7 * shell) * reached * glowStrength;`);
   };
+
+  dissolvable(needles, 'needles');
 
   const meshes: { mesh: InstancedMesh; total: number }[] = [];
   for (const kind of KINDS) {
@@ -292,6 +300,11 @@ export function createEvergreen(textures: TreeTextures, random: Random) {
     uniforms,
     cardCount: meshes.reduce((sum, entry) => sum + entry.total, 0),
     surface: measureCrown(boundary),
+    samples,
+    setShadows(enabled: boolean) {
+      for (const { mesh } of meshes) mesh.castShadow = enabled;
+      bark.castShadow = enabled;
+    },
     setDensity(fraction: number) {
       for (const { mesh, total } of meshes) mesh.count = Math.max(1, Math.round(total * fraction));
     },

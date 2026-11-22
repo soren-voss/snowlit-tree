@@ -1,4 +1,3 @@
-import { presetImage } from '../data/gifts';
 import type { Gift } from '../data/gifts';
 
 export class GiftCard {
@@ -24,12 +23,11 @@ export class GiftCard {
     dialog.addEventListener('click', event => { if (event.target === dialog) onClose(); });
   }
 
-  prepare(gift: Gift): void {
+  prepare(gift: Gift, image: string | undefined): void {
     this.name.textContent = gift.name;
     this.message.textContent = gift.message;
     this.setSignature(this.from, gift.from);
     this.setSignature(this.to, gift.to);
-    const image = presetImage(gift.image);
     if (image) this.image.src = image;
     else this.image.removeAttribute('src');
     this.image.parentElement!.hidden = !image;

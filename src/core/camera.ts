@@ -14,6 +14,9 @@ export class SceneCamera {
   readonly camera = new PerspectiveCamera(36, 1, 0.16, 165);
   enabled = false;
   orbiting = false;
+  /** Starts the slow orbit without waiting for the idle timeout (recording demo). */
+  autoOrbit = false;
+  orbitSpeed = .065;
   private inspecting = false;
   private readonly target = new Vector3();
   private readonly pointers = new Map<number, { x: number; y: number }>();
@@ -29,6 +32,9 @@ export class SceneCamera {
   private zoomVelocity = 0;
   private portrait = 0;
   private progress = 0;
+  private width = 1;
+  private height = 1;
+  private readonly inset = { right: 0, bottom: 0, targetRight: 0, targetBottom: 0 };
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     canvas.addEventListener('pointerdown', this.onDown);
@@ -42,11 +48,30 @@ export class SceneCamera {
   }
 
   resize(width: number, height: number): void {
-    this.camera.aspect = width / height;
-    this.portrait = clamp((1 - this.camera.aspect) / 0.44, 0, 1);
-    this.camera.fov = lerp(36, 44, this.portrait);
-    const visibleWidth = 7.5 / (2 * Math.tan(degToRad(this.camera.fov / 2)) * this.camera.aspect);
+    this.width = width;
+    this.height = height;
+    this.frame();
+  }
+
+  /** Reserves screen space for a side panel (right) or bottom sheet; the tree is framed in what remains. */
+  setInset(right: number, bottom: number): void {
+    this.inset.targetRight = right;
+    this.inset.targetBottom = bottom;
+  }
+
+  private frame(): void {
+    const { right, bottom } = this.inset;
+    const width = Math.max(1, this.width - right), height = Math.max(1, this.height - bottom);
+    const aspect = width / height;
+    this.camera.aspect = this.width / this.height;
+    this.portrait = clamp((1 - aspect) / 0.44, 0, 1);
+    const fov = degToRad(lerp(36, 44, this.portrait));
+    this.camera.fov = MathUtils.radToDeg(2 * Math.atan(Math.tan(fov / 2) * this.height / height));
+    const panel = Math.min(1, (right + bottom) / 160);
+    const visibleWidth = lerp(7.5, 9.6, panel) / (2 * Math.tan(fov / 2) * aspect);
     this.framingDistance = Math.max(lerp(17.6, 15.2, this.portrait), visibleWidth);
+    if (right + bottom > .5) this.camera.setViewOffset(this.width, this.height, right / 2, bottom / 2, this.width, this.height);
+    else this.camera.clearViewOffset();
     this.camera.updateProjectionMatrix();
     if (this.inspecting) return;
     if (!this.enabled) this.setIntro(this.progress);
@@ -63,10 +88,20 @@ export class SceneCamera {
   }
 
   update(delta: number): void {
+    const { inset } = this;
+    if (Math.abs(inset.right - inset.targetRight) + Math.abs(inset.bottom - inset.targetBottom) > .5) {
+      inset.right = MathUtils.damp(inset.right, inset.targetRight, 7, delta);
+      inset.bottom = MathUtils.damp(inset.bottom, inset.targetBottom, 7, delta);
+      if (Math.abs(inset.right - inset.targetRight) + Math.abs(inset.bottom - inset.targetBottom) <= .5) {
+        inset.right = inset.targetRight;
+        inset.bottom = inset.targetBottom;
+      }
+      this.frame();
+    }
     if (!this.enabled || this.inspecting) return;
     if (this.pointers.size === 0) this.idle += delta;
-    this.orbiting = this.idle >= IDLE_SECONDS && !this.reducedMotion.matches;
-    this.drift = MathUtils.damp(this.drift, this.orbiting ? 0.065 : 0, 2.6, delta);
+    this.orbiting = (this.idle >= IDLE_SECONDS || this.autoOrbit) && !this.reducedMotion.matches;
+    this.drift = MathUtils.damp(this.drift, this.orbiting ? this.orbitSpeed : 0, 2.6, delta);
 
     const decay = Math.exp(-delta * 8.5);
     this.angle += this.panX * (1 - decay) + this.drift * delta;
