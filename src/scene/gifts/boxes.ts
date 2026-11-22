@@ -1,9 +1,10 @@
 import {
-  AdditiveBlending, BoxGeometry, BufferGeometry, Color, DoubleSide, Float32BufferAttribute, Group, MathUtils,
+  AdditiveBlending, BackSide, BoxGeometry, BufferGeometry, Color, DoubleSide, Float32BufferAttribute, Group, MathUtils,
   Mesh, MeshBasicMaterial, MeshPhysicalMaterial, Quaternion, SphereGeometry, Sprite, SpriteMaterial, Vector3,
 } from 'three';
-import type { Material, Texture } from 'three';
+import type { Texture } from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Random } from '../../core/random';
 import type { Gift } from '../../data/gifts';
 import { crinkleTexture, wrappingTexture } from '../../textures/procedural';
@@ -91,6 +92,24 @@ function bowTail(yaw: number, reach: number, drop: number, width: number): Buffe
   return band(points, sides, width);
 }
 
+/** Drops the +Y face of a BoxGeometry so the box is open at the top. */
+function openBox(geometry: BufferGeometry): BufferGeometry {
+  const top = geometry.groups[2];
+  const index = Array.from(geometry.index!.array);
+  index.splice(top.start, top.count);
+  geometry.setIndex(index);
+  geometry.clearGroups();
+  return geometry;
+}
+
+/** Merges parts that share one material (position/normal/uv); mixed indexed inputs are flattened. */
+function merge(parts: BufferGeometry[]): BufferGeometry {
+  const mixed = parts.some(part => !part.index);
+  const merged = mergeGeometries(mixed ? parts.map(part => part.index ? part.toNonIndexed() : part) : parts);
+  for (const part of parts) part.dispose();
+  return merged;
+}
+
 function scaledUv(geometry: BufferGeometry, scale: number): BufferGeometry {
   const uv = geometry.attributes.uv;
   for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * scale, uv.getY(i) * scale);
@@ -116,8 +135,8 @@ export class GiftBox {
   marker = 0;
   private lift = 0;
   private readonly bow = new Group();
-  private readonly bodyRibbons: Mesh[] = [];
-  private readonly lidRibbons = new Group();
+  private readonly bodyStraps: Mesh;
+  private readonly lidStraps: Mesh;
   private readonly light = new Group();
   private readonly lightHalo: Sprite;
   private readonly innerGlow: Mesh<BufferGeometry, MeshBasicMaterial>;
@@ -145,24 +164,21 @@ export class GiftBox {
       map, bumpMap: crinkle, bumpScale: foil ? .6 : .25,
       roughness: foil ? .32 : .55, metalness: foil ? .75 : 0, clearcoat: foil ? 0 : .25, clearcoatRoughness: .5,
     });
-    const lining = new MeshPhysicalMaterial({ color: 0xe9dcc4, roughness: .85 });
+    const lining = new MeshPhysicalMaterial({ color: 0xe9dcc4, roughness: .85, side: BackSide });
     const satin = new MeshPhysicalMaterial({
       color: ribbon, roughness: .3, metalness: .15, sheen: 1, sheenRoughness: .35, sheenColor: new Color(ribbon).lerp(new Color(1, 1, 1), .5),
       side: DoubleSide, clearcoat: .3,
     });
-    const shell = (width: number, height: number, depth: number, materials: Material | Material[], x: number, y: number, z: number) => {
-      const mesh = new Mesh(scaledUv(new BoxGeometry(width, height, depth), 1.6 * scale), materials);
-      mesh.position.set(x, y, z);
-      mesh.castShadow = mesh.receiveShadow = true;
-      this.wrap.add(mesh);
-      return mesh;
-    };
     const wall = .02;
-    shell(w, wall, d, [this.paper, this.paper, lining, this.paper, this.paper, this.paper], 0, wall / 2, 0);
-    shell(w, h, wall, [this.paper, this.paper, lining, this.paper, this.paper, lining], 0, h / 2, (d - wall) / 2);
-    shell(w, h, wall, [this.paper, this.paper, lining, this.paper, lining, this.paper], 0, h / 2, -(d - wall) / 2);
-    shell(wall, h, d - 2 * wall, [this.paper, lining, lining, this.paper, this.paper, this.paper], (w - wall) / 2, h / 2, 0);
-    shell(wall, h, d - 2 * wall, [lining, this.paper, lining, this.paper, this.paper, this.paper], -(w - wall) / 2, h / 2, 0);
+    const outer = openBox(scaledUv(new BoxGeometry(w, h, d), 1.6 * scale));
+    outer.translate(0, h / 2, 0);
+    const body = new Mesh(outer, this.paper);
+    body.castShadow = body.receiveShadow = true;
+    const liner = openBox(new BoxGeometry(w - 2 * wall, h - wall, d - 2 * wall));
+    liner.translate(0, wall + (h - wall) / 2, 0);
+    const inside = new Mesh(liner, lining);
+    inside.receiveShadow = true;
+    this.wrap.add(body, inside);
 
     this.innerGlow = new Mesh(new BoxGeometry(w - 2 * wall - .01, .002, d - 2 * wall - .01), new MeshBasicMaterial({
       color: new Color(1, .7, .35).multiplyScalar(2.2), transparent: true, opacity: 0, blending: AdditiveBlending, depthWrite: false,
@@ -171,39 +187,42 @@ export class GiftBox {
     this.wrap.add(this.innerGlow);
 
     const ribbonWidth = Math.min(w, d) * .17;
-    const strap = (width: number, height: number, depth: number, x: number, y: number, z: number, parent: Group) => {
-      const mesh = new Mesh(new BoxGeometry(width, height, depth), satin);
-      mesh.position.set(x, y, z);
-      mesh.castShadow = true;
-      parent.add(mesh);
-      return mesh;
-    };
+    const slab = (width: number, height: number, depth: number, x: number, y: number, z: number) =>
+      new BoxGeometry(width, height, depth).translate(x, y, z);
+    const straps: BufferGeometry[] = [];
     for (const sign of [-1, 1]) {
-      this.bodyRibbons.push(strap(ribbonWidth, h - .01, .006, 0, h / 2, sign * (d / 2 + .004), this.wrap));
-      this.bodyRibbons.push(strap(.006, h - .01, ribbonWidth, sign * (w / 2 + .004), h / 2, 0, this.wrap));
+      straps.push(slab(ribbonWidth, h - .01, .006, 0, (h - .01) / 2, sign * (d / 2 + .004)));
+      straps.push(slab(.006, h - .01, ribbonWidth, sign * (w / 2 + .004), (h - .01) / 2, 0));
     }
+    this.bodyStraps = new Mesh(merge(straps), satin);
+    this.bodyStraps.castShadow = true;
+    this.wrap.add(this.bodyStraps);
 
     const lidHeight = Math.min(.13, h * .2);
     const lidMesh = new Mesh(scaledUv(new RoundedBoxGeometry(w + .03, lidHeight, d + .03, 3, .012), 1.6 * scale), this.paper);
     lidMesh.position.y = lidHeight / 2;
     lidMesh.castShadow = lidMesh.receiveShadow = true;
-    this.lid.add(lidMesh, this.lidRibbons, this.bow);
-    strap(w + .036, lidHeight + .006, ribbonWidth, 0, lidHeight / 2, 0, this.lidRibbons);
-    strap(ribbonWidth, lidHeight + .006, d + .036, 0, lidHeight / 2, 0, this.lidRibbons);
+    this.lidStraps = new Mesh(merge([
+      slab(w + .036, lidHeight + .006, ribbonWidth, 0, 0, 0),
+      slab(ribbonWidth, lidHeight + .006, d + .036, 0, 0, 0),
+    ]), satin);
+    this.lidStraps.position.y = lidHeight / 2;
+    this.lid.add(lidMesh, this.lidStraps, this.bow);
 
     this.bow.position.y = lidHeight + .004;
     const loop = Math.min(w, d) * .36;
     const bowWidth = ribbonWidth * 1.05;
     const lean = (random() - .5) * .3;
+    const bowParts: BufferGeometry[] = [];
     for (const sign of [-1, 1]) {
-      this.bow.add(new Mesh(bowLoop(sign, 0, loop, loop * .62, bowWidth, sign * .32 + lean), satin));
-      this.bow.add(new Mesh(bowLoop(sign, Math.PI / 2, loop * .78, loop * .5, bowWidth * .9, sign * .5 - lean), satin));
-      this.bow.add(new Mesh(bowTail(Math.PI / 4 + (sign > 0 ? 0 : Math.PI) + (random() - .5) * .4, Math.min(w, d) * .55, .12, bowWidth * .9), satin));
+      bowParts.push(bowLoop(sign, 0, loop, loop * .62, bowWidth, sign * .32 + lean));
+      bowParts.push(bowLoop(sign, Math.PI / 2, loop * .78, loop * .5, bowWidth * .9, sign * .5 - lean));
+      bowParts.push(bowTail(Math.PI / 4 + (sign > 0 ? 0 : Math.PI) + (random() - .5) * .4, Math.min(w, d) * .55, .12, bowWidth * .9));
     }
-    const knot = new Mesh(new RoundedBoxGeometry(bowWidth * 1.15, bowWidth * .7, bowWidth * 1.15, 2, bowWidth * .25), satin);
-    knot.position.y = bowWidth * .3;
-    this.bow.add(knot);
-    for (const child of this.bow.children) (child as Mesh).castShadow = true;
+    bowParts.push(new RoundedBoxGeometry(bowWidth * 1.15, bowWidth * .7, bowWidth * 1.15, 2, bowWidth * .25).translate(0, bowWidth * .3, 0));
+    const bowMesh = new Mesh(merge(bowParts), satin);
+    bowMesh.castShadow = true;
+    this.bow.add(bowMesh);
 
     this.hit = new Mesh(new BoxGeometry(w + .06, h + lidHeight + loop * .7, d + .06), hitMaterial);
     this.hit.position.y = (h + lidHeight + loop * .7) / 2;
@@ -240,13 +259,10 @@ export class GiftBox {
     this.bow.scale.setScalar(Math.max(.001, 1 - loosen * .9));
     this.bow.rotation.y = loosen * .9;
     this.bow.position.x = loosen * .05;
-    this.lidRibbons.visible = loosen < .995;
-    this.lidRibbons.scale.set(1, 1, 1).multiplyScalar(Math.max(.001, 1 - loosen * .6));
-    for (const strap of this.bodyRibbons) {
-      strap.visible = loosen < .995;
-      strap.scale.y = Math.max(.001, 1 - loosen);
-      strap.position.y = this.height / 2 * (1 - loosen);
-    }
+    this.lidStraps.visible = loosen < .995;
+    this.lidStraps.scale.setScalar(Math.max(.001, 1 - loosen * .6));
+    this.bodyStraps.visible = loosen < .995;
+    this.bodyStraps.scale.y = Math.max(.001, 1 - loosen);
 
     const travel = this.lidTravel;
     const across = MathUtils.smoothstep(travel, .12, .9);

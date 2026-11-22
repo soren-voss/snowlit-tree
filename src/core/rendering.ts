@@ -104,6 +104,8 @@ export class Rendering {
       if ('getWorldPosition' in this.focus) this.focus.getWorldPosition(this.depth.target);
       else this.depth.target.copy(this.focus);
     }
+    this.renderer.info.autoReset = false;
+    this.renderer.info.reset();
     this.composer.render(delta);
   }
 }

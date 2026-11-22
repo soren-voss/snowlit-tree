@@ -36,6 +36,7 @@ interface TreeDebug {
   readonly lights: Readonly<LightsState> | undefined;
   readonly giftRing: typeof GIFT_RING;
   readonly gifts: ReturnType<GiftExperience['summary']>;
+  readonly stats: { calls: number; triangles: number; textures: number } | undefined;
   onIgnite?: () => void;
   ignite(): void;
   setLightMode(mode: LightMode): void;
@@ -80,6 +81,10 @@ const api: TreeDebug = {
   get lights() { return lights?.state; },
   get giftRing() { return GIFT_RING; },
   get gifts() { return giftExperience?.summary() ?? []; },
+  get stats() {
+    const info = rendering?.renderer.info;
+    return info ? { calls: info.render.calls, triangles: info.render.triangles, textures: info.memory.textures } : undefined;
+  },
   ignite: () => ignite(),
   setLightMode: mode => lights?.setLightMode(mode),
   setFocus: target => rendering?.setFocus(target),
