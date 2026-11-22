@@ -1,214 +1,293 @@
 import {
-  AdditiveBlending, BufferGeometry, Color, Curve, ExtrudeGeometry, Float32BufferAttribute, Group,
-  IcosahedronGeometry, InstancedBufferAttribute, InstancedMesh, MathUtils, Mesh, MeshStandardMaterial,
-  Object3D, Points, ShaderMaterial, Shape, Sprite, SpriteMaterial, Texture, TubeGeometry, Vector3,
+  AdditiveBlending, BufferGeometry, CanvasTexture, Color, ExtrudeGeometry, Float32BufferAttribute, Group,
+  IcosahedronGeometry, InstancedBufferAttribute, InstancedMesh, Mesh, MeshStandardMaterial,
+  Object3D, Points, ShaderMaterial, Shape, Sprite, SpriteMaterial, Vector3,
 } from 'three';
+import type { Camera, Texture } from 'three';
 import type { Random } from '../../core/random';
-import { CROWN_BASE, TAU, TREE_TOP, crownCenter } from './shape';
+import { CROWN_BASE, TAU, TREE_TOP, crownCenter, crownRadius } from './shape';
 import type { CrownSurface } from './shape';
 
 const modes = ['breath', 'chase', 'twinkle'] as const;
 export type LightMode = typeof modes[number];
-const FLOW_COUNT = 50;
 
-class GarlandPath extends Curve<Vector3> {
-  constructor(private readonly surface: CrownSurface) {
-    super();
-  }
-
-  getPoint(t: number, target = new Vector3()): Vector3 {
-    const angle = -0.38 + t * TAU * 6.4;
-    const y = CROWN_BASE + .26 + t * (TREE_TOP - CROWN_BASE - .48) + .04 * Math.sin(angle * 2.0) * (1 - t);
-    return this.surface(y, angle, .041 + .038 * Math.cos(t * 72), target);
-  }
-
-  override getPointAt(t: number, target?: Vector3): Vector3 {
-    return this.getPoint(t, target);
-  }
-
-  override getTangentAt(t: number, target?: Vector3): Vector3 {
-    return this.getTangent(t, target);
-  }
+interface Bulb {
+  position: Vector3;
+  order: number;
+  depth: number;
 }
 
-function bulbString(path: GarlandPath, random: Random) {
-  const count = 359;
-  const geometry = new IcosahedronGeometry(1, 1);
-  const metadata = [];
-  const uniforms = { time: { value: 0 }, progress: { value: 0 }, mode: { value: 0 } };
-  const material = new ShaderMaterial({
-    uniforms,
-    vertexShader: `
-      attribute vec3 bulb;
-      varying vec3 surfaceNormal, variation;
-      void main() {
-        surfaceNormal = normalize(normalMatrix * mat3(instanceMatrix) * normal);
-        variation = bulb;
-        gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.);
-      }
-    `,
-    fragmentShader: `
-      uniform float time, progress, mode;
-      varying vec3 surfaceNormal, variation;
-      void main() {
-        float on = smoothstep(variation.x - .002, variation.x + .011, progress);
-        float phase = .5 + .5 * sin(time * (1.3 + .33 * variation.y) + variation.y * 41.);
-        float flicker = pow(.5 + .5 * sin(time * (2.7 + 5.*variation.z) + variation.y * 88.), 13.);
-        float breath = .76 + .11 * sin(time * 1.38 - variation.x * 5.4) + (.18 + .15 * variation.z) * flicker;
-        float chase = .35 + .83 * pow(.5 + .5 * cos(variation.x * 32. - time * 4.1), 7.);
-        float twinkle = .41 + .16 * phase + .82 * flicker;
-        float rhythm = mode < .5 ? breath : mode < 1.5 ? chase : twinkle;
-        float face = .62 + .38 * max(0., surfaceNormal.z);
-        vec3 color = mix(vec3(3.25, 1.01, .20), vec3(3.95, 2.77, 1.29), variation.z);
-        gl_FragColor = vec4(mix(vec3(.016,.022,.017), color * rhythm * face, on), 1.);
-        #include <colorspace_fragment>
-      }
-    `,
-  });
-  const bulbs = new InstancedMesh(geometry, material, count);
-  const proxy = new Object3D();
+/** Bulbs wound around the crown in a loose spiral, half tucked deep between branches. */
+function layoutBulbs(random: Random, surface: CrownSurface): Bulb[] {
+  const bulbs: Bulb[] = [];
+  const count = 540;
+  const turns = 15.5;
   for (let i = 0; i < count; i++) {
-    const t = (i + .2 + random() * .6) / count;
-    const size = (.023 + .032 * random() ** 1.5) * (1 - .24 * t);
-    path.getPoint(t, proxy.position);
-    proxy.scale.set(size * .86, size * (.9 + random() * .42), size);
-    proxy.updateMatrix();
-    bulbs.setMatrixAt(i, proxy.matrix);
-    metadata.push(t, random(), random());
+    const t = (i + random() * .8) / count;
+    const y = CROWN_BASE + .3 + t * (TREE_TOP - CROWN_BASE - .85) + (random() - .5) * .22;
+    const angle = t * TAU * turns + (random() - .5) * .35;
+    const deep = random() < .4;
+    const reach = crownRadius(y);
+    const inset = deep ? reach * (.18 + .35 * random()) : .04 + .12 * random();
+    bulbs.push({ position: surface(y, angle, inset), order: t, depth: deep ? .35 + .3 * random() : 1 });
   }
-  geometry.setAttribute('bulb', new InstancedBufferAttribute(new Float32Array(metadata), 3));
-  return { mesh: bulbs, uniforms };
+  return bulbs;
 }
 
-function goldRibbon(path: GarlandPath) {
-  const uniforms = { progress: { value: 0 }, time: { value: 0 } };
-  const material = new ShaderMaterial({
+function bulbMeshes(bulbs: Bulb[], random: Random) {
+  const geometry = new IcosahedronGeometry(1, 2);
+  const uniforms = { time: { value: 0 }, progress: { value: 0 }, mode: { value: 0 }, ratio: { value: 1 } };
+  const meta = new Float32Array(bulbs.length * 4);
+  bulbs.forEach((bulb, i) => meta.set([bulb.order, random(), random(), bulb.depth], i * 4));
+  const rhythm = `
+    uniform float time, progress, mode;
+    float bulbLevel(vec4 b) {
+      float on = smoothstep(b.x - .004, b.x + .012, progress);
+      float flicker = pow(.5 + .5 * sin(time * (2.3 + 4. * b.z) + b.y * 88.), 16.);
+      float breath = .8 + .14 * sin(time * 1.2 - b.x * 6.) + .25 * flicker;
+      float chase = .3 + .9 * pow(.5 + .5 * cos(b.x * 40. - time * 3.6), 6.);
+      float twinkle = .35 + .25 * (.5 + .5 * sin(time * (1.4 + b.y) + b.y * 40.)) + .8 * flicker;
+      return on * (mode < .5 ? breath : mode < 1.5 ? chase : twinkle);
+    }
+    vec3 bulbTint(vec4 b) { return mix(vec3(1., .62, .26), vec3(1., .80, .52), b.z); }`;
+
+  const core = new ShaderMaterial({
     uniforms,
     vertexShader: `
-      varying vec3 viewNormal;
-      varying vec2 cord;
+      attribute vec4 bulb;
+      varying vec4 vBulb;
+      varying vec3 vNormal;
       void main() {
-        cord = uv;
-        viewNormal = normalize(normalMatrix * normal);
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.);
-      }
-    `,
+        vBulb = bulb;
+        vNormal = normalize(normalMatrix * mat3(instanceMatrix) * normal);
+        gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.);
+      }`,
     fragmentShader: `
-      uniform float progress, time;
-      varying vec3 viewNormal;
-      varying vec2 cord;
+      ${rhythm}
+      varying vec4 vBulb;
+      varying vec3 vNormal;
       void main() {
-        if (cord.x > progress) discard;
-        float falloff = .46 + .54 * max(0., dot(viewNormal, vec3(-.4,.64,.65)));
-        float gleam = pow(.5 + .5 * sin(cord.x * 91. - time * 2.25), 13.);
-        float front = exp(-abs(progress - cord.x) * 100.) * (1. - step(1., progress));
-        vec3 col = vec3(.61,.28,.069) * falloff + vec3(1.33,.66,.19) * (gleam * .78 + front);
-        gl_FragColor = vec4(col, 1.);
+        float level = bulbLevel(vBulb);
+        float face = .55 + .45 * max(0., vNormal.z);
+        vec3 off = vec3(.05, .045, .035);
+        gl_FragColor = vec4(mix(off, bulbTint(vBulb) * (4.2 * face), min(1., level)) * max(level, 1.), 1.);
         #include <colorspace_fragment>
-      }
-    `,
+      }`,
   });
-  const mesh = new Mesh(new TubeGeometry(path, 640, .0125, 5, false), material);
-  return { mesh, uniforms };
-}
+  const mesh = new InstancedMesh(geometry, core, bulbs.length);
+  const stencil = new Object3D();
+  bulbs.forEach((bulb, i) => {
+    stencil.position.copy(bulb.position);
+    stencil.scale.setScalar(.022 + .01 * random());
+    stencil.scale.y *= 1.35;
+    stencil.rotation.set((random() - .5) * .8, random() * TAU, (random() - .5) * .8);
+    stencil.updateMatrix();
+    mesh.setMatrixAt(i, stencil.matrix);
+  });
+  geometry.setAttribute('bulb', new InstancedBufferAttribute(meta, 4));
 
-function movingLights(random: Random) {
-  const geometry = new BufferGeometry();
-  const vertices = new Float32Array(FLOW_COUNT * 3);
-  const visible = new Float32Array(FLOW_COUNT);
-  const shift = Array.from({ length: FLOW_COUNT }, (_, index) => (index + random() * .65) / FLOW_COUNT);
-  geometry.setAttribute('position', new Float32BufferAttribute(vertices, 3));
-  geometry.setAttribute('shine', new Float32BufferAttribute(visible, 1));
-  const material = new ShaderMaterial({
-    uniforms: { ratio: { value: 1 } },
+  const haloGeometry = new BufferGeometry();
+  haloGeometry.setAttribute('position', new Float32BufferAttribute(bulbs.flatMap(bulb => bulb.position.toArray()), 3));
+  haloGeometry.setAttribute('bulb', new Float32BufferAttribute(meta, 4));
+  const halos = new Points(haloGeometry, new ShaderMaterial({
+    uniforms,
     vertexShader: `
       uniform float ratio;
-      attribute float shine;
-      varying float alpha;
+      attribute vec4 bulb;
+      varying vec4 vBulb;
       void main() {
-        vec4 pos = modelViewMatrix * vec4(position, 1.);
-        gl_Position = projectionMatrix * pos;
-        gl_PointSize = ratio * clamp(69. / max(1., -pos.z), 1.3, 10.);
-        alpha = shine;
-      }
-    `,
+        vBulb = bulb;
+        vec4 eye = modelViewMatrix * vec4(position, 1.);
+        gl_Position = projectionMatrix * eye;
+        gl_PointSize = ratio * clamp(150. / max(1., -eye.z), 4., 30.) * mix(.6, 1., bulb.w);
+      }`,
     fragmentShader: `
-      varying float alpha;
+      ${rhythm}
+      varying vec4 vBulb;
       void main() {
         float d = length(gl_PointCoord - .5) * 2.;
-        gl_FragColor = vec4(3.4,1.80,.53, alpha * (1.-smoothstep(.12,.95,d)));
+        float glow = exp(-d * d * 7.) * .9 + exp(-d * 3.2) * .22;
+        gl_FragColor = vec4(bulbTint(vBulb) * 1.5, glow * bulbLevel(vBulb) * vBulb.w * (1. - smoothstep(.8, 1., d)));
         #include <colorspace_fragment>
-      }
-    `,
+      }`,
     transparent: true, depthWrite: false, blending: AdditiveBlending,
-  });
-  const points = new Points(geometry, material);
-  points.frustumCulled = false;
-  points.renderOrder = 2;
-  return { points, geometry, material, shift };
+  }));
+  halos.frustumCulled = false;
+  halos.renderOrder = 2;
+  return { mesh, halos, uniforms };
 }
 
+/** Warm light pools cast by the bulbs, unwrapped onto a cylinder (u = bearing, v = height). */
+function bulbGlowMap(bulbs: Bulb[]): CanvasTexture {
+  const width = 512, height = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, width, height);
+  ctx.globalCompositeOperation = 'lighter';
+  const center = new Vector3();
+  for (const bulb of bulbs) {
+    const { x, y, z } = bulb.position;
+    crownCenter(y, center);
+    const u = (Math.atan2(x - center.x, z - center.z) / TAU + .5) * width;
+    const v = (1 - y / TREE_TOP) * height;
+    const circumference = Math.max(.6, TAU * crownRadius(y));
+    const ru = Math.min(width * .25, .55 / circumference * width);
+    const rv = .55 / TREE_TOP * height;
+    for (const offset of [-width, 0, width]) {
+      ctx.save();
+      ctx.translate(u + offset, v);
+      ctx.scale(ru, rv);
+      const light = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+      light.addColorStop(0, `rgba(255,255,255,${.5 * bulb.depth + .15})`);
+      light.addColorStop(.45, 'rgba(255,255,255,.12)');
+      light.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = light;
+      ctx.beginPath();
+      ctx.arc(0, 0, 1, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+  const texture = new CanvasTexture(canvas);
+  texture.generateMipmaps = true;
+  return texture;
+}
+
+/** Draped swags of gold beads that hug the crown and dip between their hanging points. */
+function beadGarland(random: Random, surface: CrownSurface) {
+  const beads: { position: Vector3; order: number }[] = [];
+  const rings = [1.05, 1.95, 2.85, 3.75, 4.6, 5.45, 6.25];
+  const cursor = new Vector3();
+  rings.forEach((height, ringIndex) => {
+    const reach = crownRadius(height);
+    const swags = Math.max(3, Math.round(TAU * reach / 1.75));
+    const start = ringIndex * 1.1 + random() * .5;
+    const sag = .2 + .14 * reach / 3;
+    const spacing = .052;
+    const total = Math.round(TAU * reach * 1.08 / spacing);
+    for (let i = 0; i < total; i++) {
+      const u = i / total;
+      const local = (u * swags) % 1;
+      const angle = start + u * TAU;
+      const y = height - sag * 4 * local * (1 - local) - .12 * Math.sin(u * TAU * 2 + ringIndex);
+      surface(y, angle, .07 + .05 * Math.sin(u * 97), cursor);
+      beads.push({ position: cursor.clone(), order: (ringIndex + u) / rings.length });
+    }
+  });
+  const geometry = new IcosahedronGeometry(1, 1);
+  const order = new Float32Array(beads.map(bead => bead.order));
+  geometry.setAttribute('garland', new InstancedBufferAttribute(order, 1));
+  const uniforms = { progress: { value: 0 }, time: { value: 0 } };
+  const material = new MeshStandardMaterial({ color: 0xd9a74e, metalness: 1, roughness: .24, envMapIntensity: 1.2 });
+  material.onBeforeCompile = shader => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float garland;\nvarying float vGarland;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGarland = garland;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float progress, time;\nvarying float vGarland;')
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        float front = exp(-abs(progress - vGarland) * 40.) * (1. - step(1., progress)) * step(.001, progress);
+        float shimmer = pow(.5 + .5 * sin(vGarland * 900. - time * 2.4), 18.) * step(vGarland, progress);
+        totalEmissiveRadiance += vec3(1., .62, .22) * (front * 2.2 + shimmer * .55);`);
+  };
+  const mesh = new InstancedMesh(geometry, material, beads.length);
+  const stencil = new Object3D();
+  beads.forEach((bead, i) => {
+    stencil.position.copy(bead.position);
+    stencil.scale.setScalar(.021 + .004 * random());
+    stencil.updateMatrix();
+    mesh.setMatrixAt(i, stencil.matrix);
+  });
+  mesh.castShadow = true;
+  return { mesh, uniforms, material };
+}
+
+function rayTexture(): CanvasTexture {
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.translate(size / 2, size / 2);
+  for (const [angle, length, width] of [[0, 1, 1], [Math.PI / 2, .82, 1], [Math.PI / 4, .42, .55], [-Math.PI / 4, .42, .55]]) {
+    ctx.save();
+    ctx.rotate(angle);
+    const beam = ctx.createLinearGradient(-size / 2 * length, 0, size / 2 * length, 0);
+    beam.addColorStop(0, 'rgba(255,255,255,0)');
+    beam.addColorStop(.5, 'rgba(255,255,255,.9)');
+    beam.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = beam;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, size / 2 * length, 2.6 * width, 0, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
+  return new CanvasTexture(canvas);
+}
+
+/** A faceted gold star that always turns its face toward the viewer, with soft halo and cross rays. */
 function topper(glowTexture: Texture) {
+  const outer = .5, inner = .2;
   const shape = new Shape();
   for (let i = 0; i < 10; i++) {
     const angle = Math.PI / 2 + i * Math.PI / 5;
-    const radius = i % 2 ? .231 : .533;
-    const x = Math.cos(angle) * radius;
-    const y = Math.sin(angle) * radius;
-    if (i === 0) shape.moveTo(x, y);
-    else shape.lineTo(x, y);
+    const radius = i % 2 ? inner : outer;
+    if (i === 0) shape.moveTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
+    else shape.lineTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
   }
-  shape.closePath();
-  const geometry = new ExtrudeGeometry(shape, {
-    depth: .09, bevelEnabled: true, bevelThickness: .043, bevelSize: .027, bevelSegments: 2, steps: 1,
-  });
-  geometry.translate(0, 0, -.045);
-  const face = new MeshStandardMaterial({ color: 0xd5a54c, metalness: .65, roughness: .25, emissive: 0xffbc50, emissiveIntensity: 0 });
-  const edge = new MeshStandardMaterial({ color: 0x9c6731, metalness: .75, roughness: .25, emissive: 0xf29529, emissiveIntensity: 0 });
-  const star = new Mesh(geometry, [face, edge]);
-  const facets = [];
-  for (const side of [-1, 1]) {
+  const rim = new ExtrudeGeometry(shape, { depth: .05, bevelEnabled: true, bevelThickness: .025, bevelSize: .02, bevelSegments: 2 });
+  rim.translate(0, 0, -.025);
+  const facets: number[] = [];
+  for (const sideSign of [-1, 1]) {
     for (let i = 0; i < 10; i++) {
       const a = Math.PI / 2 + i * Math.PI / 5;
       const b = a + Math.PI / 5;
-      const r = i % 2 ? .226 : .516;
-      const s = i % 2 ? .516 : .226;
-      const first = [Math.cos(a) * r, Math.sin(a) * r, .047 * side];
-      const second = [Math.cos(b) * s, Math.sin(b) * s, .047 * side];
-      facets.push(0, .01, .143 * side, ...(side > 0 ? first : second), ...(side > 0 ? second : first));
+      const ra = (i % 2 ? inner : outer) * 1.02;
+      const rb = (i % 2 ? outer : inner) * 1.02;
+      const p = [Math.cos(a) * ra, Math.sin(a) * ra, .05 * sideSign];
+      const q = [Math.cos(b) * rb, Math.sin(b) * rb, .05 * sideSign];
+      facets.push(0, 0, .17 * sideSign, ...(sideSign > 0 ? p : q), ...(sideSign > 0 ? q : p));
     }
   }
-  const ridge = new BufferGeometry();
-  ridge.setAttribute('position', new Float32BufferAttribute(facets, 3));
-  ridge.computeVertexNormals();
-  const facetMaterial = new MeshStandardMaterial({ color: 0xf4c674, metalness: .55, roughness: .22, emissive: 0xffc25b, emissiveIntensity: 0 });
-  star.add(new Mesh(ridge, facetMaterial));
+  const crown = new BufferGeometry();
+  crown.setAttribute('position', new Float32BufferAttribute(facets, 3));
+  crown.computeVertexNormals();
+  const gold = new MeshStandardMaterial({ color: 0xe0b45c, metalness: 1, roughness: .32, emissive: 0xffb84d, emissiveIntensity: 0, flatShading: true });
+  const rimGold = new MeshStandardMaterial({ color: 0xb98535, metalness: 1, roughness: .5, emissive: 0xff9f2e, emissiveIntensity: 0 });
+  const star = new Group();
+  star.add(new Mesh(crown, gold), new Mesh(rim, rimGold));
   const halo = new Sprite(new SpriteMaterial({
-    map: glowTexture, color: new Color(0xffb759).multiplyScalar(1.75), transparent: true,
-    opacity: 0, blending: AdditiveBlending, depthWrite: false,
+    map: glowTexture, color: new Color(1, .7, .35).multiplyScalar(1.6), transparent: true, opacity: 0,
+    blending: AdditiveBlending, depthWrite: false,
   }));
-  crownCenter(TREE_TOP + .41, star.position);
-  halo.position.copy(star.position);
-  halo.scale.setScalar(3.25);
-  halo.renderOrder = 3;
+  const rays = new Sprite(new SpriteMaterial({
+    map: rayTexture(), color: new Color(1, .82, .55).multiplyScalar(1.4), transparent: true, opacity: 0,
+    blending: AdditiveBlending, depthWrite: false,
+  }));
   const group = new Group();
-  group.add(star, halo);
+  crownCenter(TREE_TOP + .36, group.position);
+  halo.renderOrder = rays.renderOrder = 3;
+  group.add(star, halo, rays);
   return {
     group,
-    update(time: number, level: number, flare: number) {
-      star.visible = level > .002;
-      halo.visible = star.visible;
-      star.rotation.y = .19 + time * .25;
-      face.emissiveIntensity = 2.48 * level + flare;
-      edge.emissiveIntensity = 1.12 * level + flare * .45;
-      facetMaterial.emissiveIntensity = (1.44 + .48 * Math.sin(time * 1.15)) * level + flare;
-      halo.material.opacity = .31 * level + .35 * flare;
-      halo.scale.setScalar(3.0 + flare * 1.16 + .18 * Math.sin(time * 1.3));
+    update(time: number, level: number, flare: number, camera?: Camera) {
+      if (camera) star.rotation.y = Math.atan2(camera.position.x - group.position.x, camera.position.z - group.position.z) + .32 * Math.sin(time * .5);
+      gold.emissiveIntensity = (.8 + .15 * Math.sin(time * 1.3)) * level + flare * .9;
+      rimGold.emissiveIntensity = .35 * level + flare * .4;
+      halo.material.opacity = .42 * level + .4 * flare;
+      halo.scale.setScalar(2.6 + flare * 1.4 + .12 * Math.sin(time * 1.1));
+      rays.material.opacity = (.32 + .08 * Math.sin(time * .9)) * level + .45 * flare;
+      rays.material.rotation = .08 * Math.sin(time * .3);
+      rays.scale.setScalar(1.25 + flare * 1.2);
     },
   };
 }
 
-export const BASE_BLOOM = .57;
+export const BASE_BLOOM = .62;
 
 export interface LightsState {
   bulbs: number;
@@ -220,43 +299,31 @@ export interface LightsState {
 
 export function createIllumination(random: Random, glow: Texture, surface: CrownSurface) {
   const group = new Group();
-  const path = new GarlandPath(surface);
-  const bulbs = bulbString(path, random);
-  const ribbon = goldRibbon(path);
-  const sparks = movingLights(random);
+  const layout = layoutBulbs(random, surface);
+  const bulbs = bulbMeshes(layout, random);
+  const garland = beadGarland(random, surface);
   const star = topper(glow);
-  const cursor = new Vector3();
-  group.add(bulbs.mesh, ribbon.mesh, sparks.points, star.group);
+  group.add(bulbs.mesh, bulbs.halos, garland.mesh, star.group);
   const state: LightsState = { bulbs: 0, ribbon: 0, star: 0, ground: 0, flare: 0 };
   return {
     group,
     state,
+    glowMap: bulbGlowMap(layout),
+    setReflection(texture: Texture) {
+      garland.material.envMap = texture;
+    },
     setLightMode(mode: LightMode) {
       const index = modes.indexOf(mode);
       if (index >= 0) bulbs.uniforms.mode.value = index;
     },
-    update(time: number, ratio: number) {
-      bulbs.mesh.visible = state.bulbs > 0;
-      bulbs.uniforms.progress.value = state.bulbs === 1 ? 1.025 : state.bulbs;
+    update(time: number, ratio: number, camera?: Camera) {
+      bulbs.uniforms.progress.value = state.bulbs >= 1 ? 1.03 : state.bulbs;
       bulbs.uniforms.time.value = time;
-      ribbon.mesh.visible = state.ribbon > 0;
-      ribbon.uniforms.progress.value = state.ribbon;
-      ribbon.uniforms.time.value = time;
-      sparks.points.visible = state.ribbon > 0;
-      if (sparks.points.visible) {
-        sparks.material.uniforms.ratio.value = ratio;
-        const positions = sparks.geometry.attributes.position;
-        const shine = sparks.geometry.attributes.shine;
-        for (let i = 0; i < FLOW_COUNT; i++) {
-          const t = (sparks.shift[i] + time * .027) % 1;
-          path.getPoint(t, cursor);
-          positions.setXYZ(i, cursor.x, cursor.y + .008, cursor.z);
-          const edge = MathUtils.smoothstep(t, 0, .035) * (1 - MathUtils.smoothstep(t, state.ribbon - .055, state.ribbon));
-          shine.setX(i, edge * (.38 + .24 * Math.sin(time * 2.6 + i * 7)));
-        }
-        positions.needsUpdate = shine.needsUpdate = true;
-      }
-      star.update(time, state.star, state.flare);
+      bulbs.uniforms.ratio.value = ratio;
+      bulbs.halos.visible = state.bulbs > 0;
+      garland.uniforms.progress.value = state.ribbon >= 1 ? 1.05 : state.ribbon;
+      garland.uniforms.time.value = time;
+      star.update(time, state.star, state.flare, camera);
     },
   };
 }

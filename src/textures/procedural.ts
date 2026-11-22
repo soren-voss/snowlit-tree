@@ -1,4 +1,4 @@
-import { CanvasTexture, Color, EquirectangularReflectionMapping, SRGBColorSpace } from 'three';
+import { CanvasTexture, Color, EquirectangularReflectionMapping, RepeatWrapping, SRGBColorSpace } from 'three';
 import type { Random } from '../core/random';
 import type { Gift } from '../data/gifts';
 
@@ -9,41 +9,6 @@ function surface(width: number, height: number): CanvasRenderingContext2D {
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas 2D unavailable');
   return ctx;
-}
-
-export function needleTexture(random: Random): CanvasTexture {
-  const ctx = surface(256, 512);
-  ctx.lineCap = 'round';
-  const spine = ctx.createLinearGradient(0, 480, 0, 13);
-  spine.addColorStop(0, '#6f6651');
-  spine.addColorStop(0.4, '#879082');
-  spine.addColorStop(1, '#d7dcce');
-  ctx.strokeStyle = spine;
-  ctx.lineWidth = 4.2;
-  ctx.beginPath();
-  ctx.moveTo(128, 506);
-  ctx.quadraticCurveTo(120, 292, 131, 30);
-  ctx.stroke();
-
-  for (let index = 0; index < 285; index++) {
-    const t = (index + random()) / 285;
-    const y = 495 - 463 * t;
-    const side = index % 2 === 0 ? 1 : -1;
-    const width = Math.sin(t ** 0.63 * Math.PI) ** 0.77;
-    const endX = 128 + side * (15 + width * 98) * (0.3 + random() * 0.7);
-    const endY = y - 19 - (0.25 + width) * (10 + random() * 65);
-    const tone = Math.floor(129 + random() * 111);
-    ctx.strokeStyle = `rgb(${tone - 9} ${tone} ${tone - 6} / ${0.66 + 0.34 * random()})`;
-    ctx.lineWidth = 1.4 + 3.7 * random() * (1 - t * 0.44);
-    ctx.beginPath();
-    ctx.moveTo(126 + (random() - 0.5) * 17 + side * width * random() * 13, y);
-    ctx.quadraticCurveTo(endX * 0.48 + 64, y - 10, endX, endY);
-    ctx.stroke();
-  }
-  const texture = new CanvasTexture(ctx.canvas);
-  texture.colorSpace = SRGBColorSpace;
-  texture.anisotropy = 4;
-  return texture;
 }
 
 export function glowTexture(): CanvasTexture {
@@ -59,71 +24,84 @@ export function glowTexture(): CanvasTexture {
   return new CanvasTexture(ctx.canvas);
 }
 
-export function barkTexture(random: Random): CanvasTexture {
-  const ctx = surface(128, 128);
-  ctx.fillStyle = '#756359';
-  ctx.fillRect(0, 0, 128, 128);
-  for (let i = 0; i < 150; i++) {
-    const x = random() * 128;
-    const width = 0.5 + random() * 3;
-    ctx.strokeStyle = i % 4 === 0 ? '#978578' : '#4c3932';
-    ctx.lineWidth = width;
-    ctx.globalAlpha = .22 + random() * .55;
-    ctx.beginPath();
-    ctx.moveTo(x, -4);
-    for (let y = 6; y < 137; y += 7) ctx.lineTo(x + (random() - .5) * width * 2.5, y);
-    ctx.stroke();
-  }
-  const texture = new CanvasTexture(ctx.canvas);
-  texture.colorSpace = SRGBColorSpace;
-  return texture;
-}
-
-export function wrappingTexture(pattern: Gift['box']['pattern'], random: Random): CanvasTexture {
-  const ctx = surface(128, 128);
-  ctx.fillStyle = '#f3eee6';
-  ctx.fillRect(0, 0, 128, 128);
+/** Printed wrapping paper: the colours live in the texture so each pattern reads like real gift wrap. */
+export function wrappingTexture(pattern: Gift['box']['pattern'], base: string, accent: string, random: Random): CanvasTexture {
+  const size = 512;
+  const ctx = surface(size, size);
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, size, size);
   if (pattern === 'stripe') {
-    ctx.strokeStyle = '#fff4d9';
-    ctx.lineWidth = 4;
-    for (let x = -128; x < 144; x += 16) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x + 128, 128);
-      ctx.stroke();
+    ctx.save();
+    ctx.translate(size / 2, size / 2);
+    ctx.rotate(-Math.PI / 4);
+    for (let x = -size; x < size; x += 64) {
+      ctx.fillStyle = accent;
+      ctx.globalAlpha = .9;
+      ctx.fillRect(x, -size, 7, size * 2);
+      ctx.globalAlpha = .35;
+      ctx.fillRect(x + 16, -size, 2, size * 2);
+      ctx.fillRect(x - 11, -size, 2, size * 2);
     }
-    ctx.fillStyle = '#7c6961';
-    ctx.globalAlpha = .19;
-    for (let x = 0; x < 128; x += 16) ctx.fillRect(x, 0, 1, 128);
+    ctx.restore();
   } else if (pattern === 'dot') {
-    ctx.fillStyle = '#fffded';
-    for (let y = 0; y < 128; y += 16) {
-      for (let x = 0; x < 128; x += 16) {
+    ctx.fillStyle = accent;
+    for (let y = 0; y < size; y += 48) {
+      for (let x = 0; x < size; x += 48) {
         ctx.beginPath();
-        ctx.arc(x + (y % 32 ? 11 : 4), y + 6, 2.25, 0, Math.PI * 2);
+        ctx.arc(x + (y % 96 ? 24 : 0), y + 12, 7, 0, Math.PI * 2);
         ctx.fill();
       }
     }
   } else if (pattern === 'foil') {
-    const luster = ctx.createLinearGradient(0, 30, 128, 108);
-    luster.addColorStop(0, '#b9a291');
-    luster.addColorStop(.44, '#fff3ce');
-    luster.addColorStop(.73, '#ddc6aa');
-    luster.addColorStop(1, '#f2d8ad');
-    ctx.fillStyle = luster;
-    ctx.fillRect(0, 0, 128, 128);
-    ctx.globalAlpha = .24;
-    for (let i = 0; i < 104; i++) {
-      ctx.fillStyle = i % 2 ? '#7d6251' : '#fffae5';
-      ctx.fillRect(random() * 128, random() * 128, .6 + random() * 5, .55 + random() * 1.1);
+    for (let i = 0; i < 900; i++) {
+      ctx.globalAlpha = .05 + random() * .1;
+      ctx.fillStyle = random() < .5 ? '#fff6dc' : '#4a3214';
+      ctx.beginPath();
+      ctx.ellipse(random() * size, random() * size, 4 + random() * 22, 2 + random() * 8, random() * Math.PI, 0, Math.PI * 2);
+      ctx.fill();
     }
+  } else {
+    const sheen = ctx.createLinearGradient(0, 0, size, size);
+    sheen.addColorStop(0, 'rgba(255,255,255,.06)');
+    sheen.addColorStop(.5, 'rgba(255,255,255,0)');
+    sheen.addColorStop(1, 'rgba(0,0,0,.08)');
+    ctx.fillStyle = sheen;
+    ctx.fillRect(0, 0, size, size);
   }
-  ctx.globalAlpha = .1;
-  ctx.fillStyle = '#786454';
-  for (let i = 0; i < 260; i++) ctx.fillRect(random() * 128, random() * 128, 1, 1);
+  ctx.globalAlpha = .05;
+  for (let i = 0; i < 1600; i++) {
+    ctx.fillStyle = random() < .5 ? '#ffffff' : '#000000';
+    ctx.fillRect(random() * size, random() * size, 1 + random() * 2, 1);
+  }
   const texture = new CanvasTexture(ctx.canvas);
   texture.colorSpace = SRGBColorSpace;
-  texture.anisotropy = 4;
+  texture.wrapS = texture.wrapT = RepeatWrapping;
+  texture.anisotropy = 8;
+  return texture;
+}
+
+/** Soft creases and fibres for paper bump mapping. */
+export function crinkleTexture(random: Random): CanvasTexture {
+  const size = 256;
+  const ctx = surface(size, size);
+  ctx.fillStyle = '#808080';
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 70; i++) {
+    const x = random() * size, y = random() * size, angle = random() * Math.PI, length = 30 + random() * 120;
+    ctx.strokeStyle = random() < .5 ? 'rgba(255,255,255,.18)' : 'rgba(0,0,0,.18)';
+    ctx.lineWidth = 1 + random() * 3;
+    ctx.beginPath();
+    ctx.moveTo(x - Math.cos(angle) * length / 2, y - Math.sin(angle) * length / 2);
+    ctx.lineTo(x + Math.cos(angle) * length / 2, y + Math.sin(angle) * length / 2);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = .12;
+  for (let i = 0; i < 4000; i++) {
+    ctx.fillStyle = random() < .5 ? '#fff' : '#000';
+    ctx.fillRect(random() * size, random() * size, 1, 1);
+  }
+  const texture = new CanvasTexture(ctx.canvas);
+  texture.wrapS = texture.wrapT = RepeatWrapping;
   return texture;
 }
 

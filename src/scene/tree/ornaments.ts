@@ -4,69 +4,82 @@ import {
 } from 'three';
 import type { Texture } from 'three';
 import type { Random } from '../../core/random';
-import { TAU } from './shape';
+import { CROWN_BASE, TREE_TOP } from './shape';
 import type { CrownSurface } from './shape';
 
+/** Baubles hung just inside the outer sprays: mirror glass, satin and pearl finishes in a red–gold–champagne palette. */
 export function createOrnaments(random: Random, surface: CrownSurface) {
   const group = new Group();
-  const ball = new SphereGeometry(1, 18, 12);
-  const cap = new CylinderGeometry(.83, 1, 1, 8);
-  const hoop = new TorusGeometry(1, .15, 5, 10);
-  const metal = new MeshStandardMaterial({ metalness: .89, roughness: .26, envMapIntensity: 1.1 });
-  const glass = new MeshPhysicalMaterial({
-    metalness: .35, roughness: .16, ior: 1.49, clearcoat: 1, clearcoatRoughness: .11,
-    envMapIntensity: 1.29, specularIntensity: .87,
-  });
-  const hardware = new MeshStandardMaterial({ color: 0xb88344, metalness: .79, roughness: .31 });
-  const count = 106;
-  const metallic = new InstancedMesh(ball, metal, Math.ceil(count / 2));
-  const blownGlass = new InstancedMesh(ball, glass, Math.floor(count / 2));
+  const ball = new SphereGeometry(1, 32, 20);
+  const cap = new CylinderGeometry(.62, .7, 1, 14);
+  const hoop = new TorusGeometry(1, .16, 6, 14);
+  const mirror = new MeshPhysicalMaterial({ metalness: 1, roughness: .12, clearcoat: .6, clearcoatRoughness: .08 });
+  const satin = new MeshPhysicalMaterial({ metalness: .55, roughness: .42, sheen: .6, sheenRoughness: .5, sheenColor: new Color(1, .85, .7) });
+  const pearl = new MeshPhysicalMaterial({ metalness: .05, roughness: .3, clearcoat: 1, clearcoatRoughness: .15, iridescence: .45 });
+  const hardware = new MeshStandardMaterial({ color: 0xc9a25a, metalness: 1, roughness: .3 });
+  const finishes = [
+    { material: mirror, colors: [0x9e1a2c, 0xc0283a, 0xd8a64c, 0xe9cf98, 0x7e1426], share: .56 },
+    { material: satin, colors: [0x8c1b2b, 0xb0263a, 0xc69244, 0xd9be8c], share: .34 },
+    { material: pearl, colors: [0xe8d2a8, 0xd4b483], share: .1 },
+  ];
+  const count = 128;
+  const stencil = new Object3D();
+  const spot = new Vector3();
+  const tint = new Color();
+  const plan = finishes.map(finish => ({ ...finish, items: [] as { position: Vector3; radius: number; color: number }[] }));
+  const golden = 2.399963;
+  for (let i = 0; i < count; i++) {
+    const t = (i + random() * .6) / count;
+    const y = CROWN_BASE + .55 + t ** 1.08 * (TREE_TOP - CROWN_BASE - 1.55);
+    const angle = i * golden + (random() - .5) * .4;
+    const radius = (.075 + random() ** 1.4 * .1) * (1 - .38 * t);
+    surface(y, angle, radius * (.55 + .9 * random()), spot);
+    spot.y -= radius * .6;
+    const roll = random();
+    let index = 0;
+    for (let acc = plan[0].share; roll > acc && index < plan.length - 1; acc += plan[++index].share);
+    const finish = plan[index];
+    finish.items.push({ position: spot.clone(), radius, color: finish.colors[Math.floor(random() * finish.colors.length)] });
+  }
+
   const caps = new InstancedMesh(cap, hardware, count);
   const hooks = new InstancedMesh(hoop, hardware, count);
-  const stencil = new Object3D();
-  const base = new Vector3();
-  const colors = [0xb3243b, 0x74172f, 0xc93639, 0xd89d4d, 0xe8bf79, 0xdcb78c, 0xba7242];
-  const color = new Color();
-  const goldenAngle = 2.399963;
-  for (let i = 0; i < count; i++) {
-    const t = i / count;
-    const y = .68 + t ** 1.05 * 6.45 + (random() - .5) * .2;
-    const angle = i * goldenAngle + .21 * random();
-    const radius = (.078 + random() ** .85 * .143) * (1 - .36 * t);
-    const colorIndex = random() < .59 ? Math.floor(random() * 3) : 3 + Math.floor(random() * 4);
-    surface(y, angle, radius * (.37 + random() * .31), base);
-    const mesh = i % 2 === 0 ? metallic : blownGlass;
-    stencil.position.copy(base);
-    stencil.rotation.set((random() - .5) * .24, angle, 0);
-    stencil.scale.set(radius, radius * (.95 + random() * .16), radius);
-    stencil.updateMatrix();
-    mesh.setMatrixAt(Math.floor(i / 2), stencil.matrix);
-    color.set(colors[colorIndex]).multiplyScalar(.78 + random() * .32);
-    mesh.setColorAt(Math.floor(i / 2), color);
+  let fitting = 0;
+  for (const finish of plan) {
+    const mesh = new InstancedMesh(ball, finish.material, finish.items.length);
+    finish.items.forEach((item, i) => {
+      stencil.position.copy(item.position);
+      stencil.rotation.set(0, random() * Math.PI * 2, 0);
+      stencil.scale.setScalar(item.radius);
+      stencil.updateMatrix();
+      mesh.setMatrixAt(i, stencil.matrix);
+      mesh.setColorAt(i, tint.set(item.color).multiplyScalar(.9 + .15 * random()));
 
-    stencil.position.y += radius * 1.018;
-    stencil.rotation.set(0, angle, 0);
-    stencil.scale.set(radius * .28, radius * .26, radius * .28);
-    stencil.updateMatrix();
-    caps.setMatrixAt(i, stencil.matrix);
-    stencil.position.y += radius * .25;
-    stencil.rotation.y = angle % TAU;
-    stencil.scale.setScalar(radius * .15);
-    stencil.updateMatrix();
-    hooks.setMatrixAt(i, stencil.matrix);
+      stencil.position.y += item.radius * 1.02;
+      stencil.scale.set(item.radius * .26, item.radius * .2, item.radius * .26);
+      stencil.updateMatrix();
+      caps.setMatrixAt(fitting, stencil.matrix);
+      stencil.position.y += item.radius * .16;
+      stencil.rotation.set(0, stencil.rotation.y, 0);
+      stencil.scale.setScalar(item.radius * .1);
+      stencil.updateMatrix();
+      hooks.setMatrixAt(fitting++, stencil.matrix);
+    });
+    mesh.castShadow = mesh.receiveShadow = true;
+    group.add(mesh);
   }
-  metallic.castShadow = blownGlass.castShadow = true;
-  metallic.receiveShadow = blownGlass.receiveShadow = true;
-  group.add(metallic, blownGlass, caps, hooks);
+  group.add(caps, hooks);
+  const materials = [mirror, satin, pearl, hardware];
   return {
     group,
     setReflection(texture: Texture) {
-      metal.envMap = glass.envMap = hardware.envMap = texture;
+      for (const material of materials) material.envMap = texture;
     },
     setLight(fraction: number) {
-      metal.envMapIntensity = .10 + fraction * 1.68;
-      glass.envMapIntensity = .075 + fraction * 1.59;
-      hardware.envMapIntensity = .11 + fraction * .72;
+      mirror.envMapIntensity = .18 + fraction * 1.5;
+      satin.envMapIntensity = .15 + fraction * 1.1;
+      pearl.envMapIntensity = .15 + fraction * 1.0;
+      hardware.envMapIntensity = .15 + fraction * .9;
     },
   };
 }

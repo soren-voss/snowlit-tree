@@ -1,19 +1,20 @@
 import { MathUtils, Vector3 } from 'three';
 
 export const TREE_TOP = 8.08;
-export const TREE_RADIUS = 3.13;
-export const CROWN_BASE = .46;
+export const TREE_RADIUS = 3.0;
+export const CROWN_BASE = .42;
 export const GIFT_RING = { inner: TREE_RADIUS * 0.6, outer: TREE_RADIUS * 1.6 };
 export const TAU = Math.PI * 2;
 
+/** Silhouette of a nursery-grown Nordmann fir: full skirt, gently convex flanks, slim leader. */
 export function crownRadius(y: number): number {
   const t = MathUtils.clamp((y - CROWN_BASE) / (TREE_TOP - CROWN_BASE), 0, 1);
-  return 0.05 + (TREE_RADIUS - 0.05) * ((1 - t) ** 1.07 + 0.052 * Math.sin(Math.PI * t));
+  return 0.04 + (TREE_RADIUS - 0.04) * ((1 - t) ** 0.93 * (1 + 0.07 * Math.sin(Math.PI * t)));
 }
 
 export function crownCenter(y: number, result: Vector3): Vector3 {
   const t = y / TREE_TOP;
-  return result.set(-0.16 * t + 0.119 * Math.sin(t * 4.1), y, 0.13 * t * t);
+  return result.set(-0.05 * t + 0.04 * Math.sin(t * 4.1), y, 0.04 * t * t);
 }
 
 export type CrownSurface = (y: number, angle: number, inset: number, target?: Vector3) => Vector3;
@@ -24,6 +25,7 @@ const HEIGHT_STEP = TREE_TOP / LEVELS;
 const angleIndex = (angle: number) => MathUtils.euclideanModulo(angle, TAU) / TAU * SLICES;
 const cell = (y: number, a: number) => y * SLICES + MathUtils.euclideanModulo(a, SLICES);
 
+/** Turns sampled foliage points into a smooth radial envelope that decorations can sit on. */
 export function measureCrown(points: Vector3[]): CrownSurface {
   const measured = new Float32Array((LEVELS + 1) * SLICES);
   const center = new Vector3();

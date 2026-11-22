@@ -1,13 +1,62 @@
 import {
-  BufferGeometry, Color, CylinderGeometry, DoubleSide, Float32BufferAttribute, Group, IcosahedronGeometry,
-  InstancedMesh, MathUtils, Matrix4, Mesh, MeshStandardMaterial, Object3D, Texture, Vector3,
+  BufferGeometry, Color, CylinderGeometry, DataTexture, DoubleSide, Float32BufferAttribute, Group,
+  InstancedMesh, MathUtils, Matrix4, Mesh, MeshStandardMaterial, Quaternion, Vector2, Vector3,
 } from 'three';
+import type { Texture } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Random } from '../../core/random';
+import type { TreeTextures } from '../../textures/assets';
 import { groundHeight } from '../landscape';
-import { CROWN_BASE, TAU, TREE_TOP, crownCenter, crownRadius, measureCrown } from './shape';
+import { CROWN_BASE, TREE_RADIUS, TREE_TOP, crownCenter, crownRadius, measureCrown } from './shape';
 
-interface Foliage {
+/** Pixel rectangles of the scanned fir sprays in the 2048² atlas: [left, top, right, bottom, stemX, stemY]. */
+const ATLAS = 2048;
+const SPRAYS = {
+  lush: [625, 816, 1320, 1590, 986, 1590],
+  fan: [1298, 927, 1956, 1707, 1611, 1707],
+  fork: [1336, 85, 1919, 753, 1654, 753],
+  cross: [387, 95, 875, 636, 625, 636],
+  twin: [1007, 530, 1293, 816, 1102, 816],
+  stub: [790, 588, 943, 784, 880, 778],
+  sprig: [1102, 201, 1203, 466, 1143, 466],
+} as const;
+type Spray = keyof typeof SPRAYS;
+const KINDS = Object.keys(SPRAYS) as Spray[];
+
+/** A slightly arched, drooping card whose stem sits at the origin and whose tip points along +Y. */
+function sprayCard(kind: Spray): BufferGeometry {
+  const [left, top, right, bottom, stemX, stemY] = SPRAYS[kind];
+  const height = bottom - top;
+  const columns = 2, rows = 4;
+  const positions: number[] = [], uvs: number[] = [], along: number[] = [], indices: number[] = [];
+  for (let row = 0; row <= rows; row++) {
+    for (let column = 0; column <= columns; column++) {
+      const px = MathUtils.lerp(left, right, column / columns);
+      const py = MathUtils.lerp(bottom, top, row / rows);
+      const x = (px - stemX) / height;
+      const y = (stemY - py) / height;
+      positions.push(x, y, -.17 * y * y - .07 * x * x);
+      uvs.push(px / ATLAS, 1 - py / ATLAS);
+      along.push(row / rows);
+    }
+  }
+  for (let row = 0; row < rows; row++) {
+    for (let column = 0; column < columns; column++) {
+      const a = row * (columns + 1) + column;
+      const b = a + columns + 1;
+      indices.push(a, a + 1, b, a + 1, b + 1, b);
+    }
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new Float32BufferAttribute(uvs, 2));
+  geometry.setAttribute('along', new Float32BufferAttribute(along, 1));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+interface Card {
   matrix: Matrix4;
   color: Color;
   priority: number;
@@ -16,237 +65,238 @@ interface Foliage {
 interface Branch {
   origin: Vector3;
   angle: number;
-  radius: number;
-  bend: number;
-  droop: number;
-  skirt: number;
+  length: number;
+  curl: number;
+  rise: number;
+  sag: number;
+  flick: number;
 }
 
-function branchPoint(branch: Branch, along: number): Vector3 {
-  const bearing = branch.angle + branch.bend * along;
-  const distance = branch.radius * along;
-  const x = branch.origin.x + Math.sin(bearing) * distance;
-  const z = branch.origin.z + Math.cos(bearing) * distance;
-  const y = branch.origin.y - branch.droop * Math.sin(along * 2.49)
-    + branch.radius * along ** 5 * .062 - branch.skirt * along ** 1.62;
-  return new Vector3(x, Math.max(y, groundHeight(x, z) + .34), z);
+const up = new Vector3(0, 1, 0);
+
+function branchPoint(branch: Branch, s: number, target: Vector3): Vector3 {
+  const yaw = branch.angle + branch.curl * s;
+  const distance = branch.length * s;
+  const lift = branch.length * (branch.rise * s - branch.sag * s * s + branch.flick * s ** 4);
+  target.set(branch.origin.x + Math.sin(yaw) * distance, branch.origin.y + lift, branch.origin.z + Math.cos(yaw) * distance);
+  target.y = Math.max(target.y, groundHeight(target.x, target.z) + .16);
+  return target;
 }
 
-const cardPositions = [
-  -.33, 0, 0, .33, 0, 0, -.50, .48, .055, .50, .48, .055, -.40, 1, .13, .40, 1, .13,
-];
+const GLSL_CROWN = `
+  float crownRadiusAt(float y) {
+    float t = clamp((y - ${CROWN_BASE.toFixed(3)}) / ${(TREE_TOP - CROWN_BASE).toFixed(3)}, 0., 1.);
+    return .04 + ${(TREE_RADIUS - .04).toFixed(3)} * pow(1. - t, .93) * (1. + .07 * sin(3.14159 * t));
+  }`;
 
-function needleCard(): BufferGeometry {
-  const geometry = new BufferGeometry();
-  geometry.setAttribute('position', new Float32BufferAttribute(cardPositions, 3));
-  geometry.setAttribute('uv', new Float32BufferAttribute([0, 0, 1, 0, 0, .48, 1, .48, 0, 1, 1, 1], 2));
-  geometry.setIndex([0, 1, 2, 1, 3, 2, 2, 3, 4, 3, 5, 4]);
-  geometry.computeVertexNormals();
-  return geometry;
-}
-
-function snowPatch(): BufferGeometry {
-  const geometry = new IcosahedronGeometry(1, 3);
-  const points = geometry.attributes.position;
-  for (let i = 0; i < points.count; i++) {
-    const x = points.getX(i);
-    const y = points.getY(i);
-    const z = points.getZ(i);
-    const lobes = 1 + .12 * Math.sin(x * 7 + z * 2 + 1) + .082 * Math.cos(z * 11 - x * 4);
-    points.setXYZ(i, x * lobes, y * (y < 0 ? .44 : lobes) + .057 * Math.sin(z * 9 + x * 2), z * lobes);
-  }
-  geometry.computeVertexNormals();
-  return geometry;
-}
-
-export function createEvergreen(texture: Texture, barkTexture: Texture, random: Random) {
+export function createEvergreen(textures: TreeTextures, random: Random) {
   const group = new Group();
-  const foliage: Foliage[] = [];
-  const patches: Foliage[] = [];
-  const wood: BufferGeometry[] = [];
+  const cards = new Map<Spray, Card[]>(KINDS.map(kind => [kind, []]));
   const boundary: Vector3[] = [];
-  const standIn = new Object3D();
-  const upright = new Vector3(0, 1, 0);
-  const right = new Vector3();
+  const wood: BufferGeometry[] = [];
+  const point = new Vector3();
+  const ahead = new Vector3();
+  const direction = new Vector3();
   const normal = new Vector3();
-  const axis = new Vector3();
-  const corner = new Vector3();
-  const basis = new Matrix4();
-  const greenInside = new Color('#1F4D3A');
-  const greenTips = new Color('#3E7A5C');
-  const frost = new Color('#79A294');
-  const lightSnow = new Color('#AEBFD4');
-  const localLight = { value: 0 };
+  const side = new Vector3();
+  const spin = new Quaternion();
+  const deep = new Color(.22, .34, .25);
+  const fresh = new Color(.6, .74, .5);
 
-  function fan(start: Vector3, angle: number, rise: number, length: number, spread: number, tint: number, detail: boolean) {
-    axis.set(Math.sin(angle), rise, Math.cos(angle)).normalize();
-    right.crossVectors(axis, upright).normalize();
-    normal.crossVectors(right, axis);
-    basis.makeBasis(right, axis, normal);
-    standIn.quaternion.setFromRotationMatrix(basis);
-    standIn.rotateY((random() - 0.5) * (detail ? 2.2 : 1.12));
-    standIn.position.copy(start);
-    standIn.scale.set(spread, length, length);
-    standIn.updateMatrix();
-    if (start.y < .92) {
-      let raise = 0;
-      for (let i = 0; i < cardPositions.length; i += 3) {
-        corner.fromArray(cardPositions, i).applyMatrix4(standIn.matrix);
-        raise = Math.max(raise, groundHeight(corner.x, corner.z) + .30 - corner.y);
-      }
-      standIn.position.y += raise;
-      standIn.updateMatrix();
+  function pick<T>(options: readonly T[], weights: readonly number[]): T {
+    let total = 0;
+    for (const weight of weights) total += weight;
+    let roll = random() * total;
+    for (let i = 0; i < options.length; i++) {
+      roll -= weights[i];
+      if (roll <= 0) return options[i];
     }
-    const color = greenInside.clone().lerp(greenTips, tint)
-      .lerp(frost, tint ** 6 * (random() < .13 ? .34 : .045))
-      .multiplyScalar(.82 + .36 * random());
-    foliage.push({ matrix: standIn.matrix.clone(), color, priority: detail ? .56 + random() * .44 : random() * .5 });
-    if (!detail) {
-      for (const y of [.28, .49, .68, .85, .99]) {
-        const z = y * .125;
-        boundary.push(new Vector3(0, y, z).applyMatrix4(standIn.matrix));
-        const width = .29 * Math.sin(Math.PI * y ** .75);
-        boundary.push(new Vector3(width, y, z).applyMatrix4(standIn.matrix), new Vector3(-width, y, z).applyMatrix4(standIn.matrix));
-      }
-    }
+    return options[options.length - 1];
   }
 
-  function cap(location: Vector3, bearing: number, length: number, width: number, height: number, rooted = false) {
-    standIn.position.copy(location);
-    standIn.rotation.set((random() - .5) * .45, bearing, (random() - .5) * .28, 'YXZ');
-    standIn.scale.set(width, height, length);
-    standIn.updateMatrix();
-    patches.push({ matrix: standIn.matrix.clone(), color: lightSnow.clone().multiplyScalar(.72 + random() * .28), priority: rooted ? -1 : random() });
+  function place(kind: Spray, origin: Vector3, heading: Vector3, roll: number, length: number, color: Color, priority: number, hint = up) {
+    direction.copy(heading).normalize();
+    normal.copy(hint).addScaledVector(direction, -direction.dot(hint));
+    if (normal.lengthSq() < 1e-4) normal.set(1, 0, 0).addScaledVector(direction, -direction.x);
+    normal.normalize().applyQuaternion(spin.setFromAxisAngle(direction, roll));
+    side.crossVectors(direction, normal).normalize();
+    const matrix = new Matrix4().makeBasis(side, direction, normal).scale(new Vector3(length, length, length)).setPosition(origin);
+    cards.get(kind)!.push({ matrix, color, priority });
+    if (priority > .45) boundary.push(origin.clone().addScaledVector(direction, length * .8));
   }
 
-  function twig(start: Vector3, end: Vector3, radius: number, taper: number) {
-    axis.subVectors(end, start);
-    const piece = new CylinderGeometry(radius * taper, radius, axis.length(), 7);
-    standIn.quaternion.setFromUnitVectors(upright, axis.normalize());
-    standIn.position.copy(start).lerp(end, .5);
-    standIn.scale.setScalar(1);
-    standIn.updateMatrix();
-    wood.push(piece.applyMatrix4(standIn.matrix));
+  function tint(s: number, height: number, brightness: number): Color {
+    const shade = (.34 + .66 * MathUtils.smoothstep(s, .05, .95)) * (.78 + .22 * MathUtils.smoothstep(height, .2, 2.6));
+    return deep.clone().lerp(fresh, s ** 1.6 * .85).multiplyScalar(shade * brightness);
   }
 
-  const trunkSegments = 12;
-  for (let i = 0; i < trunkSegments; i++) {
-    const a = (i / trunkSegments) * TREE_TOP;
-    const b = ((i + 1) / trunkSegments) * TREE_TOP + .006;
-    const radius = .024 + .27 * (1 - a / TREE_TOP) ** 1.35;
-    twig(crownCenter(a - .065, new Vector3()), crownCenter(b, new Vector3()), radius, i === trunkSegments - 1 ? .26 : .89);
+  function rotateAroundUp(vector: Vector3, angle: number): Vector3 {
+    return vector.applyAxisAngle(up, angle);
   }
 
-  twig(new Vector3(0, -.09, 0), new Vector3(0, .34, 0), .44, .58);
-  for (let i = 0; i < 11; i++) {
-    const angle = i / 11 * TAU + random() * .2;
-    const radius = .31 + random() * .26;
-    const x = Math.sin(angle) * radius, z = Math.cos(angle) * radius;
-    cap(new Vector3(x, groundHeight(x, z) + .013, z), angle, .20 + random() * .16, .18 + random() * .15, .095 + random() * .1, true);
-  }
-  for (let layer = 0; layer < 26; layer++) {
-    const t = layer / 25;
-    const nominalY = CROWN_BASE + .42 + t * (TREE_TOP - CROWN_BASE - .54);
-    const branchCount = Math.round(8 + 6 * (1 - t) + random() * 1.7);
-    const startAngle = layer * 2.4 + random() * .37;
-    for (let j = 0; j < branchCount; j++) {
-      const angle = startAngle + (j + .86 * (random() - .5)) / branchCount * TAU;
-      const y = nominalY + (random() - .5) * (.25 - .15 * t) + Math.sin(angle * 3 + layer) * .067;
-      const length = crownRadius(y - .27) * (.77 + random() * .15) * (1 + .054 * Math.sin(angle * 3 + y));
+  const layers = 42;
+  for (let layer = 0; layer < layers; layer++) {
+    const t = layer / (layers - 1);
+    const y = CROWN_BASE + .1 + t ** 1.04 * (TREE_TOP - CROWN_BASE - .9) + (random() - .5) * .08;
+    const reach = crownRadius(y);
+    const count = Math.round(6 + 9 * (1 - t) + random() * 1.5);
+    const startAngle = layer * 2.39996 + random() * .4;
+    for (let j = 0; j < count; j++) {
+      const angle = startAngle + (j + (random() - .5) * .7) / count * Math.PI * 2;
       const branch: Branch = {
-        origin: crownCenter(y, new Vector3()), angle, radius: length,
-        bend: (random() - .5) * .26, droop: length * (.075 + random() * .115),
-        skirt: .48 * (1 - MathUtils.smoothstep(t, 0, .17)),
+        origin: crownCenter(y + (random() - .5) * .12, new Vector3()),
+        angle,
+        length: reach * (.86 + .16 * random()),
+        curl: (random() - .5) * .3,
+        rise: .1 + .3 * t + random() * .08,
+        sag: .2 + .26 * (1 - t) + random() * .08,
+        flick: .1 * (1 - t),
       };
-      if (length > .64) {
-        twig(branch.origin, branchPoint(branch, .50), length * .034, .60);
-        twig(branchPoint(branch, .50), branchPoint(branch, .93), length * .021, .10);
+      const length = branch.length;
+      if (length > .55) {
+        branchPoint(branch, .62, point);
+        const limb = new CylinderGeometry(.008, Math.min(.05, .024 * length), point.distanceTo(branch.origin), 5);
+        limb.translate(0, point.distanceTo(branch.origin) / 2, 0);
+        limb.applyQuaternion(spin.setFromUnitVectors(up, ahead.subVectors(point, branch.origin).normalize()));
+        limb.translate(branch.origin.x, branch.origin.y, branch.origin.z);
+        wood.push(limb);
       }
 
-      const richest = Math.round(4 + 4 * (1 - t));
-      for (let i = 0; i < richest; i++) {
-        const s = .20 + .75 * i / (richest - 1);
-        const root = branchPoint(branch, s);
-        const bearing = angle + branch.bend * s;
-        const size = Math.max(.20, (.46 - .19 * s) * length + .09);
-        const tint = MathUtils.clamp(s * .85 + (random() - .5) * .16 + t * .11, 0, 1);
-        fan(root, bearing, .25 + .15 * random(), size, size * (.59 + .25 * random()), tint, false);
-        fan(root, bearing + .16, -.20 + .19 * random(), size * .79, size * .52, tint, true);
-        for (const side of [-1, 1]) {
-          const offset = .68 + .39 * random() + .19 * (1 - s);
-          const fanLength = size * (.82 + .65 * random());
-          fan(root, bearing + side * offset, (random() - .5) * .34, fanLength, fanLength * (.52 + .28 * random()), tint, false);
-          fan(root, bearing + side * (.28 + offset), .29 + random() * .29, fanLength * .66, fanLength * .50, tint * .88, true);
+      const card = MathUtils.clamp(length * .46, .28, 1.02);
+      const step = card * .34 / length;
+      for (let s = .1 + random() * step; s < .9; s += step) {
+        branchPoint(branch, s, point);
+        branchPoint(branch, s + .04, ahead);
+        const heading = ahead.clone().sub(point).normalize();
+        const bright = .9 + .2 * random();
+        const main = pick<Spray>(['lush', 'fan', 'fork', 'cross'], [3, 3, 2, 1]);
+        place(main, point, rotateAroundUp(heading.clone(), (random() - .5) * .36).add(new Vector3(0, .06, 0)),
+          (random() - .5) * .62, card * (.86 + .3 * random()), tint(s, y, bright), .55 + .4 * random());
+        for (const sign of [-1, 1]) {
+          const kind = pick<Spray>(['twin', 'cross', 'fork', 'stub', 'sprig'], [3, 2, 2, 1, 1]);
+          const turn = sign * (.55 + .55 * random());
+          place(kind, point, rotateAroundUp(heading.clone(), turn).add(new Vector3(0, (random() - .35) * .3, 0)),
+            sign * (.15 + .45 * random()), card * (.5 + .28 * random()), tint(s * .92, y, bright), .3 + .4 * random());
         }
-        const dusting = .12 + .12 * Math.sin(2 * angle + y * .92) ** 2;
-        if (s > .61 && random() < dusting) {
-          const p = root.clone();
-          p.x += .08 * Math.sin(bearing);
-          p.z += .08 * Math.cos(bearing);
-          p.y += .045 + size * .13;
-          cap(p, bearing + (random() - .5) * .66, size * (.21 + .23 * random()), size * (.12 + .14 * random()), size * (.055 + .064 * random()));
+        if (random() < .38) {
+          place(pick<Spray>(['lush', 'fork'], [2, 1]), point, rotateAroundUp(heading.clone(), (random() - .5) * 1.2).add(new Vector3(0, .25, 0)),
+            (random() < .5 ? -1 : 1) * (.9 + .5 * random()), card * (.6 + .2 * random()), tint(s * .85, y, bright * .95), .12 + .3 * random());
         }
       }
-      const tip = branchPoint(branch, .96);
-      const size = Math.max(.18, length * .24);
-      fan(tip, angle + branch.bend, .44 + random() * .27, size, size * .61, .95, false);
-      fan(tip, angle + branch.bend + .36, .23, size * .8, size * .53, .92, true);
+      branchPoint(branch, .9, point);
+      branchPoint(branch, .95, ahead);
+      const tipHeading = ahead.clone().sub(point).normalize().add(new Vector3(0, .14, 0));
+      place(pick<Spray>(['fan', 'lush', 'fork'], [3, 2, 2]), point, tipHeading, (random() - .5) * .5, card * (.72 + .3 * random()), tint(1, y, .95 + .15 * random()), .9 + .1 * random());
+
+      for (let k = 0; k < 3; k++) {
+        const s = .06 + random() * .28;
+        branchPoint(branch, s, point);
+        place('lush', point, rotateAroundUp(new Vector3(Math.sin(angle), .2, Math.cos(angle)), (random() - .5) * 1.4),
+          (random() - .5) * 2.4, card * (1 + .3 * random()), tint(s * .6, y, .8), random() * .2);
+      }
     }
   }
-  for (let i = 0; i < 16; i++) {
-    const y = TREE_TOP - .69 + i * .038;
-    fan(crownCenter(y, new Vector3()), 2.4 * i, 2.5 + random(), .20 + random() * .35, .11 + random() * .08, .8, false);
+
+  for (let i = 0; i < 26; i++) {
+    const s = i / 25;
+    const y = TREE_TOP - 1.25 + s * 1.08;
+    const yaw = i * 2.39996;
+    const lean = .25 + .55 * (1 - s) * random();
+    const heading = new Vector3(Math.sin(yaw) * lean, 1, Math.cos(yaw) * lean);
+    const hint = new Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+    place(pick<Spray>(['sprig', 'fork', 'twin', 'cross'], [2, 1, 2, 1]), crownCenter(y, new Vector3()), heading,
+      (random() - .5) * 1.2, .34 + .32 * (1 - s) * random() + .12, tint(.9, y, 1), .8 + .2 * random(), hint);
   }
 
-  const branchGeometry = mergeGeometries(wood);
+  const trunkGeometry = new CylinderGeometry(.03, .19, TREE_TOP - .3, 12, 6);
+  trunkGeometry.translate(0, (TREE_TOP - .3) / 2 - .12, 0);
+  const trunkUv = trunkGeometry.attributes.uv;
+  for (let i = 0; i < trunkUv.count; i++) trunkUv.setXY(i, trunkUv.getX(i) * 2, trunkUv.getY(i) * 9);
+  wood.push(trunkGeometry);
+  const woodGeometry = mergeGeometries(wood.map(piece => piece.index ? piece.toNonIndexed() : piece));
   for (const piece of wood) piece.dispose();
-  const bark = new Mesh(branchGeometry, new MeshStandardMaterial({
-    color: 0x574235, map: barkTexture, bumpMap: barkTexture, bumpScale: .033, roughness: 1,
+  const bark = new Mesh(woodGeometry, new MeshStandardMaterial({
+    color: 0x8a7766, map: textures.barkColor, normalMap: textures.barkNormal, roughness: .95,
   }));
-  bark.castShadow = true;
-  bark.receiveShadow = true;
+  bark.castShadow = bark.receiveShadow = true;
 
-  const needles = new MeshStandardMaterial({ color: 0xffffff, map: texture, roughness: 1, side: DoubleSide, alphaTest: .34 });
+  const black = new DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
+  black.needsUpdate = true;
+  const uniforms = {
+    bulbGlow: { value: black as Texture },
+    bulbReach: { value: 0 },
+    glowStrength: { value: 0 },
+    snowAmount: { value: .16 },
+  };
+  const needles = new MeshStandardMaterial({
+    map: textures.twigColor, alphaMap: textures.twigAlpha, normalMap: textures.twigNormal,
+    normalScale: new Vector2(.9, .9), alphaTest: .42, side: DoubleSide, roughness: .74, metalness: 0, envMapIntensity: .35,
+  });
   needles.onBeforeCompile = shader => {
-    shader.uniforms.crownLight = localLight;
+    Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 sprayWorld;\nvarying vec3 sprayNormal;')
+      .replace('#include <common>', `#include <common>
+        attribute float along;
+        varying vec3 vFoliage;
+        varying float vAlong;
+        varying float vFacing;`)
       .replace('#include <project_vertex>', `#include <project_vertex>
-        sprayWorld = (instanceMatrix * vec4(transformed, 1.)).xyz;
-        sprayNormal = normalMatrix * normalize(vec3(sprayWorld.x, 1.35, sprayWorld.z));`);
+        vFoliage = (modelMatrix * instanceMatrix * vec4(transformed, 1.)).xyz;
+        vAlong = along;
+        vFacing = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * vec3(0., 0., 1.)).y;`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 sprayWorld;\nvarying vec3 sprayNormal;\nuniform float crownLight;')
+      .replace('#include <common>', `#include <common>
+        uniform sampler2D bulbGlow;
+        uniform float bulbReach, glowStrength, snowAmount;
+        varying vec3 vFoliage;
+        varying float vAlong;
+        varying float vFacing;
+        ${GLSL_CROWN}
+        float foliageHash(vec3 p) { return fract(sin(dot(floor(p), vec3(12.9898, 78.233, 37.719))) * 43758.5453); }`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        float dust = smoothstep(.5, 1., vAlong) * smoothstep(.55, .95, abs(vFacing))
+          * smoothstep(.5, .9, foliageHash(vFoliage * 11.)) * snowAmount;
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.74, .80, .90), dust);`)
       .replace('#include <normal_fragment_begin>', `#include <normal_fragment_begin>
-        normal = normalize(sprayNormal);
+        vec3 outward = normalize(vec3(vFoliage.x, .0, vFoliage.z) * 1.2 + vec3(0., .75, 0.));
+        normal = normalize(mix(normal, normalize((viewMatrix * vec4(outward, 0.)).xyz), .62));
         nonPerturbedNormal = normal;`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-        float fill = 1. - smoothstep(0., 8.3, sprayWorld.y);
-        totalEmissiveRadiance += diffuseColor.rgb * vec3(.28, .34, .25) * fill * crownLight;`);
+        float heightFraction = clamp(vFoliage.y / ${TREE_TOP.toFixed(2)}, 0., 1.);
+        float bearing = atan(vFoliage.x, vFoliage.z) / 6.2831853 + .5;
+        float bulbs = texture2D(bulbGlow, vec2(bearing, heightFraction)).r;
+        float shell = smoothstep(.2, .92, length(vFoliage.xz) / max(.05, crownRadiusAt(vFoliage.y)));
+        float reached = smoothstep(heightFraction - .035, heightFraction, bulbReach);
+        totalEmissiveRadiance += diffuseColor.rgb * vec3(1., .5, .17) * bulbs * (.3 + .7 * shell) * reached * glowStrength;`);
   };
 
-  function instances(items: Foliage[], geometry: BufferGeometry, material: MeshStandardMaterial): InstancedMesh {
-    items.sort((a, b) => a.priority - b.priority);
-    const mesh = new InstancedMesh(geometry, material, items.length);
-    for (const [index, item] of items.entries()) {
-      mesh.setMatrixAt(index, item.matrix);
-      mesh.setColorAt(index, item.color);
+  const meshes: { mesh: InstancedMesh; total: number }[] = [];
+  for (const kind of KINDS) {
+    const list = cards.get(kind)!;
+    if (!list.length) continue;
+    list.sort((a, b) => b.priority - a.priority);
+    const mesh = new InstancedMesh(sprayCard(kind), needles, list.length);
+    for (const [index, card] of list.entries()) {
+      mesh.setMatrixAt(index, card.matrix);
+      mesh.setColorAt(index, card.color);
     }
     mesh.computeBoundingSphere();
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    return mesh;
+    mesh.castShadow = mesh.receiveShadow = true;
+    meshes.push({ mesh, total: list.length });
+    group.add(mesh);
   }
+  group.add(bark);
 
-  const sprays = instances(foliage, needleCard(), needles);
-  const snow = instances(patches, snowPatch(), new MeshStandardMaterial({ roughness: .89 }));
-  group.add(bark, sprays, snow);
   return {
     group,
-    localLight,
+    uniforms,
+    cardCount: meshes.reduce((sum, entry) => sum + entry.total, 0),
     surface: measureCrown(boundary),
     setDensity(fraction: number) {
-      sprays.count = Math.round(foliage.length * fraction);
-      snow.count = Math.ceil(patches.length * MathUtils.lerp(.42, 1, fraction));
+      for (const { mesh, total } of meshes) mesh.count = Math.max(1, Math.round(total * fraction));
+    },
+    setBulbGlow(texture: Texture) {
+      uniforms.bulbGlow.value = texture;
     },
   };
 }

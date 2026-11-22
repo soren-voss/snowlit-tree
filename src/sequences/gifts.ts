@@ -13,9 +13,11 @@ type Inspection = 'opening' | 'card' | 'closing' | 'rewrapping';
 function approach(box: GiftBox): CameraPose {
   const outward = new Vector3(box.anchor.x, 0, box.anchor.z).normalize();
   const sideways = new Vector3(outward.z, 0, -outward.x);
-  const position = box.anchor.clone().addScaledVector(outward, 3.15).addScaledVector(sideways, .35);
-  position.y = groundHeight(position.x, position.z) + 2.23;
-  return { position, target: box.openPoint.clone() };
+  const position = box.anchor.clone().addScaledVector(outward, 5.1).addScaledVector(sideways, .35);
+  position.y = groundHeight(position.x, position.z) + 1.45 + box.height;
+  const target = box.anchor.clone();
+  target.y += box.height * .5 + .78;
+  return { position, target };
 }
 
 function cameraMove(view: SceneCamera, start: CameraPose, end: CameraPose, seconds: number): Clip {
@@ -73,6 +75,7 @@ export class GiftExperience {
 
   update(time: number, delta: number, ratio: number): void {
     this.reveal.setPixelRatio(ratio);
+    this.reveal.tick(delta);
     if (this.timeline?.update(delta)) this.timeline = undefined;
     for (const box of this.boxes) box.update(time, delta, this.hovered === box);
   }
@@ -106,14 +109,14 @@ export class GiftExperience {
       }),
       tween(.62, value => { box.release = value; }, ease.smooth),
       parallel(
-        tween(.73, value => { box.lidTravel = value; }, ease.smooth),
-        sequence(wait(.34), tween(.39, value => this.reveal.spark(value * .39, Math.sin(value * Math.PI * .5)))),
+        tween(.8, value => { box.lidTravel = value; }, ease.smooth),
+        sequence(wait(.3), call(() => this.reveal.burstOut()), tween(.5, value => this.reveal.beamStrength(Math.sin(value * Math.PI * .5)))),
       ),
       call(() => this.rendering.setFocus(this.reveal.card)),
       parallel(
-        tween(1.11, value => this.reveal.placeCard(box, this.view.camera, value, Math.min(1, value * 5)), ease.outCubic),
-        tween(1.11, value => this.reveal.spark(.39 + 1.11 * value, (1 - value) ** 1.4)),
-        tween(.97, value => { this.dim = value; }, ease.smooth),
+        tween(1.2, value => this.reveal.placeCard(box, this.view.camera, value, Math.min(1, value * 4)), ease.outCubic),
+        tween(1.4, value => this.reveal.beamStrength((1 - value) ** 1.6)),
+        tween(1.0, value => { this.dim = value; }, ease.smooth),
       ),
       call(() => this.showCard(box)),
       tween(.30, value => this.reveal.placeCard(box, this.view.camera, 1, 1 - value)),
@@ -167,7 +170,8 @@ export class GiftExperience {
       }, ease.smooth),
       call(() => {
         this.reveal.hideCard();
-        this.reveal.spark(2, 0);
+        this.reveal.stopBurst();
+        this.reveal.beamStrength(0);
         this.rendering.clearFocus();
       }),
       parallel(

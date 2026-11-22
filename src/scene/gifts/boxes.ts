@@ -1,66 +1,104 @@
 import {
-  AdditiveBlending, BoxGeometry, BufferGeometry, Color, DoubleSide, EdgesGeometry, Float32BufferAttribute,
-  Group, LineBasicMaterial, LineSegments, MathUtils, Mesh, MeshBasicMaterial, MeshStandardMaterial,
-  SphereGeometry, Sprite, SpriteMaterial, Vector3,
+  AdditiveBlending, BoxGeometry, BufferGeometry, Color, DoubleSide, Float32BufferAttribute, Group, MathUtils,
+  Mesh, MeshBasicMaterial, MeshPhysicalMaterial, Quaternion, SphereGeometry, Sprite, SpriteMaterial, Vector3,
 } from 'three';
-import type { Texture } from 'three';
+import type { Material, Texture } from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import type { Random } from '../../core/random';
 import type { Gift } from '../../data/gifts';
-import { wrappingTexture } from '../../textures/procedural';
+import { crinkleTexture, wrappingTexture } from '../../textures/procedural';
 import { groundHeight } from '../landscape';
-import { GIFT_RING } from '../tree/shape';
 
 const dimensions = {
-  cube: [.79, .61, .73],
-  flat: [.98, .33, .65],
-  tall: [.57, .77, .57],
+  cube: [.74, .62, .72],
+  flat: [.98, .34, .7],
+  tall: [.52, .88, .52],
 } as const;
-const lanes = [-.80, -.47, -.09, .22, .47, .86];
-const radii = [3.72, 3.25, 4.32, 3.27, 4.26, 3.72];
 const up = new Vector3(0, 1, 0);
-const slotOffsets = [0, .16, -.16, .32, -.32, .51, -.51, .73, -.73];
-const lidBearings = [0, -.61, .61, -1.19, 1.19, -1.62, 1.62];
 
-interface Footprint {
-  position: Vector3;
-  radius: number;
+/** Hand-placed composition in front of the tree: [bearing, distance from trunk, scale]. */
+const SLOTS: [number, number, number][] = [
+  [-.66, 3.3, 1.02], [-.3, 4.02, .98], [.03, 3.32, 1.08], [.38, 4.02, 1], [.7, 3.32, .96], [1.02, 3.72, 1.04],
+];
+/** Non-interactive boxes that dress the sides and back: [bearing, distance, scale, shape, stack-on-previous]. */
+const PROPS: [number, number, number, Gift['box']['shape'], boolean][] = [
+  [-1.25, 3.2, 1.28, 'cube', false], [-1.25, 3.2, .62, 'cube', true], [1.48, 3.25, 1.12, 'flat', false],
+  [1.86, 3.5, .7, 'cube', false], [Math.PI - .35, 3.25, 1.15, 'tall', false], [Math.PI + .45, 3.35, 1.05, 'cube', false],
+  [Math.PI + .45, 3.35, .55, 'flat', true], [-2.2, 3.4, .9, 'flat', false],
+];
+const PROP_STYLE: [string, Gift['box']['pattern']][] = [
+  ['#7e1426', 'satin'], ['#efe4cf', 'dot'], ['#1d3b30', 'stripe'], ['#c9a24f', 'foil'],
+  ['#24365a', 'dot'], ['#a8323e', 'stripe'], ['#f1e6d2', 'satin'], ['#3b2a4a', 'foil'],
+];
+
+function luminance(hex: string): number {
+  const c = new Color(hex);
+  return .2126 * c.r + .7152 * c.g + .0722 * c.b;
 }
 
-function footprint(width: number, depth: number): number {
-  return Math.hypot(width + .045, depth + .045) / 2;
+function trims(base: string, pattern: Gift['box']['pattern']): { accent: string; ribbon: string } {
+  const light = luminance(base) > .35;
+  if (pattern === 'foil') return { accent: '#fff2cf', ribbon: light ? '#8e1b2b' : '#efe2c4' };
+  return light ? { accent: '#c79a45', ribbon: '#9c1d2e' } : { accent: '#d8b25c', ribbon: '#d6ad57' };
 }
 
-function isClear(position: Vector3, radius: number, occupied: readonly Footprint[]): boolean {
-  return occupied.every(entry =>
-    Math.hypot(position.x - entry.position.x, position.z - entry.position.z) >= radius + entry.radius + .055);
-}
-
-function ribbonLoop(sign: number, width: number): BufferGeometry {
+/** A flat ribbon band swept along a polyline; `side` gives the direction of the band's width at each point. */
+function band(points: Vector3[], sides: Vector3[], width: number): BufferGeometry {
+  const positions: number[] = [], indices: number[] = [], uvs: number[] = [];
+  points.forEach((point, i) => {
+    const half = sides[i].clone().multiplyScalar(width / 2);
+    const a = point.clone().sub(half), b = point.clone().add(half);
+    positions.push(a.x, a.y, a.z, b.x, b.y, b.z);
+    uvs.push(0, i / (points.length - 1), 1, i / (points.length - 1));
+    if (i < points.length - 1) indices.push(i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 1, i * 2 + 3, i * 2 + 2);
+  });
   const geometry = new BufferGeometry();
-  const vertices = [];
-  const indices = [];
-  for (let i = 0; i <= 22; i++) {
-    const t = i / 22;
-    const loop = Math.sin(t * Math.PI);
-    const x = sign * width * (.035 + .56 * loop);
-    const y = width * (.036 + .25 * Math.sin(2 * Math.PI * t) * loop + .27 * loop);
-    const z = width * (.14 * Math.sin(2 * Math.PI * t) - sign * loop * .16);
-    const twist = .28 + sign * .86 * Math.sin(t * Math.PI);
-    for (const edge of [-1, 1]) {
-      vertices.push(x, y + edge * Math.sin(twist) * width * .104, z + edge * Math.cos(twist) * width * .104);
-    }
-    const k = i * 2;
-    if (i < 22) indices.push(k, k + 1, k + 2, k + 1, k + 3, k + 2);
-  }
-  geometry.setAttribute('position', new Float32BufferAttribute(vertices, 3));
+  geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new Float32BufferAttribute(uvs, 2));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
   return geometry;
 }
 
-const markerCore = new SphereGeometry(.032, 12, 8);
-const markerMaterial = new MeshBasicMaterial({ color: new Color(0xffcc75).multiplyScalar(2.5) });
+/** One standing bow loop: leaves the knot, arcs up and outward, returns underneath. */
+function bowLoop(direction: number, yaw: number, length: number, height: number, width: number, lean: number): BufferGeometry {
+  const points: Vector3[] = [], sides: Vector3[] = [];
+  const turn = new Quaternion().setFromAxisAngle(up, yaw);
+  const tilt = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), lean);
+  for (let i = 0; i <= 36; i++) {
+    const theta = Math.PI + i / 36 * Math.PI * 2;
+    const x = direction * length * .5 * (1 + Math.cos(theta));
+    const s = Math.sin(theta);
+    const y = (s > 0 ? height : height * .16) * s + height * .08;
+    const pinch = 1 - .35 * Math.exp(-((x / length) ** 2) * 30);
+    points.push(new Vector3(x, y * pinch, 0).applyQuaternion(tilt).applyQuaternion(turn));
+    sides.push(new Vector3(0, 0, 1).applyQuaternion(tilt).applyQuaternion(turn));
+  }
+  return band(points, sides, width);
+}
+
+function bowTail(yaw: number, reach: number, drop: number, width: number): BufferGeometry {
+  const points: Vector3[] = [], sides: Vector3[] = [];
+  const heading = new Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+  const side = new Vector3().crossVectors(up, heading).normalize();
+  for (let i = 0; i <= 12; i++) {
+    const s = i / 12;
+    const flat = Math.min(s / .7, 1);
+    const fall = Math.max(0, (s - .7) / .3);
+    points.push(heading.clone().multiplyScalar(reach * flat + .02 * fall).add(new Vector3(0, .012 - drop * fall * fall + .01 * Math.sin(s * 9), 0)));
+    sides.push(side.clone().applyAxisAngle(heading, .25 * Math.sin(s * 5)));
+  }
+  return band(points, sides, width);
+}
+
+function scaledUv(geometry: BufferGeometry, scale: number): BufferGeometry {
+  const uv = geometry.attributes.uv;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * scale, uv.getY(i) * scale);
+  return geometry;
+}
+
+const glowCore = new SphereGeometry(.03, 12, 8);
+const glowCoreMaterial = new MeshBasicMaterial({ color: new Color(1, .78, .45).multiplyScalar(3) });
 const hitMaterial = new MeshBasicMaterial({ visible: false });
 
 export class GiftBox {
@@ -78,167 +116,215 @@ export class GiftBox {
   marker = 0;
   private lift = 0;
   private readonly bow = new Group();
-  private readonly lidBands = new Group();
-  private readonly bands: { mesh: Mesh; from: Vector3; direction: Vector3 }[] = [];
+  private readonly bodyRibbons: Mesh[] = [];
+  private readonly lidRibbons = new Group();
   private readonly light = new Group();
   private readonly lightHalo: Sprite;
-  private readonly outline: LineSegments<EdgesGeometry, LineBasicMaterial>;
-  private readonly lidOffset = new Vector3();
+  private readonly innerGlow: Mesh<BufferGeometry, MeshBasicMaterial>;
+  private readonly paper: MeshPhysicalMaterial;
+  private readonly lidOffset = new Vector3(0, 0, 1);
+  private readonly flipAxis = new Vector3(1, 0, 0);
+  private readonly spin = new Quaternion();
+  private readonly baseYaw = new Quaternion();
 
-  constructor(readonly data: Gift, anchor: Vector3, bearing: number, scale: number, random: Random, glow: Texture) {
+  constructor(readonly data: Gift, anchor: Vector3, bearing: number, scale: number, random: Random, glow: Texture, crinkle: Texture) {
     const [w, h, d] = dimensions[data.box.shape].map(value => value * scale);
     this.anchor = anchor;
     this.height = h;
-    this.footprint = footprint(w, d);
+    this.footprint = Math.hypot(w + .05, d + .05) / 2;
     this.root.position.copy(anchor);
     this.root.rotation.y = bearing;
     this.root.add(this.wrap);
     this.wrap.add(this.lid);
-    this.openPoint.copy(anchor).y += h + .77;
+    this.openPoint.copy(anchor).y += h + .9;
 
+    const { accent, ribbon } = trims(data.box.color, data.box.pattern);
     const foil = data.box.pattern === 'foil';
-    const paper = new MeshStandardMaterial({
-      color: new Color(data.box.color), map: wrappingTexture(data.box.pattern, random),
-      roughness: foil ? .43 : .74, metalness: foil ? .38 : .065,
+    const map = wrappingTexture(data.box.pattern, data.box.color, accent, random);
+    this.paper = new MeshPhysicalMaterial({
+      map, bumpMap: crinkle, bumpScale: foil ? .6 : .25,
+      roughness: foil ? .32 : .55, metalness: foil ? .75 : 0, clearcoat: foil ? 0 : .25, clearcoatRoughness: .5,
     });
-    const lining = new MeshStandardMaterial({ color: 0x72543f, roughness: .91 });
-    const champagne = new Color(0xc69349).lerp(new Color(0xf4d9a6), random() * .66);
-    const satin = new MeshStandardMaterial({ color: champagne, metalness: .55, roughness: .37, side: DoubleSide });
-    const panel = (parent: Group, x: number, y: number, z: number, width: number, height: number, depth: number, material: MeshStandardMaterial) => {
-      const mesh = new Mesh(new BoxGeometry(width, height, depth), material);
+    const lining = new MeshPhysicalMaterial({ color: 0xe9dcc4, roughness: .85 });
+    const satin = new MeshPhysicalMaterial({
+      color: ribbon, roughness: .3, metalness: .15, sheen: 1, sheenRoughness: .35, sheenColor: new Color(ribbon).lerp(new Color(1, 1, 1), .5),
+      side: DoubleSide, clearcoat: .3,
+    });
+    const shell = (width: number, height: number, depth: number, materials: Material | Material[], x: number, y: number, z: number) => {
+      const mesh = new Mesh(scaledUv(new BoxGeometry(width, height, depth), 1.6 * scale), materials);
       mesh.position.set(x, y, z);
-      mesh.receiveShadow = true;
+      mesh.castShadow = mesh.receiveShadow = true;
+      this.wrap.add(mesh);
+      return mesh;
+    };
+    const wall = .02;
+    shell(w, wall, d, [this.paper, this.paper, lining, this.paper, this.paper, this.paper], 0, wall / 2, 0);
+    shell(w, h, wall, [this.paper, this.paper, lining, this.paper, this.paper, lining], 0, h / 2, (d - wall) / 2);
+    shell(w, h, wall, [this.paper, this.paper, lining, this.paper, lining, this.paper], 0, h / 2, -(d - wall) / 2);
+    shell(wall, h, d - 2 * wall, [this.paper, lining, lining, this.paper, this.paper, this.paper], (w - wall) / 2, h / 2, 0);
+    shell(wall, h, d - 2 * wall, [lining, this.paper, lining, this.paper, this.paper, this.paper], -(w - wall) / 2, h / 2, 0);
+
+    this.innerGlow = new Mesh(new BoxGeometry(w - 2 * wall - .01, .002, d - 2 * wall - .01), new MeshBasicMaterial({
+      color: new Color(1, .7, .35).multiplyScalar(2.2), transparent: true, opacity: 0, blending: AdditiveBlending, depthWrite: false,
+    }));
+    this.innerGlow.position.y = wall + .004;
+    this.wrap.add(this.innerGlow);
+
+    const ribbonWidth = Math.min(w, d) * .17;
+    const strap = (width: number, height: number, depth: number, x: number, y: number, z: number, parent: Group) => {
+      const mesh = new Mesh(new BoxGeometry(width, height, depth), satin);
+      mesh.position.set(x, y, z);
+      mesh.castShadow = true;
       parent.add(mesh);
       return mesh;
     };
-
-    const wall = .045;
-    panel(this.wrap, 0, .029, 0, w, .058, d, paper);
-    panel(this.wrap, 0, .061, 0, w - 2 * wall, .01, d - 2 * wall, lining);
     for (const sign of [-1, 1]) {
-      panel(this.wrap, 0, h / 2, sign * (d - wall) / 2, w, h, wall, paper);
-      panel(this.wrap, sign * (w - wall) / 2, h / 2, 0, wall, h, d - 2 * wall, paper);
-      const strip = .087 * scale;
-      const front = panel(this.wrap, 0, h / 2, sign * (d / 2 + .004), strip, h, .007, satin);
-      const side = panel(this.wrap, sign * (w / 2 + .004), h / 2, 0, .007, h, strip, satin);
-      this.bands.push({ mesh: front, from: front.position.clone(), direction: new Vector3(0, 0, sign) });
-      this.bands.push({ mesh: side, from: side.position.clone(), direction: new Vector3(sign, 0, 0) });
+      this.bodyRibbons.push(strap(ribbonWidth, h - .01, .006, 0, h / 2, sign * (d / 2 + .004), this.wrap));
+      this.bodyRibbons.push(strap(.006, h - .01, ribbonWidth, sign * (w / 2 + .004), h / 2, 0, this.wrap));
     }
 
-    const lidMesh = new Mesh(new RoundedBoxGeometry(w + .036, .105, d + .036, 2, .018), paper);
-    lidMesh.receiveShadow = true;
-    this.lid.add(lidMesh, this.lidBands, this.bow);
-    panel(this.lidBands, 0, .057, 0, w + .04, .008, .092 * scale, satin);
-    panel(this.lidBands, 0, .059, 0, .092 * scale, .009, d + .039, satin);
-    this.bow.position.y = .061;
-    const loopWidth = Math.min(w, d) * .50;
+    const lidHeight = Math.min(.13, h * .2);
+    const lidMesh = new Mesh(scaledUv(new RoundedBoxGeometry(w + .03, lidHeight, d + .03, 3, .012), 1.6 * scale), this.paper);
+    lidMesh.position.y = lidHeight / 2;
+    lidMesh.castShadow = lidMesh.receiveShadow = true;
+    this.lid.add(lidMesh, this.lidRibbons, this.bow);
+    strap(w + .036, lidHeight + .006, ribbonWidth, 0, lidHeight / 2, 0, this.lidRibbons);
+    strap(ribbonWidth, lidHeight + .006, d + .036, 0, lidHeight / 2, 0, this.lidRibbons);
+
+    this.bow.position.y = lidHeight + .004;
+    const loop = Math.min(w, d) * .36;
+    const bowWidth = ribbonWidth * 1.05;
+    const lean = (random() - .5) * .3;
     for (const sign of [-1, 1]) {
-      this.bow.add(new Mesh(ribbonLoop(sign, loopWidth), satin));
-      const tail = panel(this.bow, sign * loopWidth * .40, .013, loopWidth * .36, .075 * scale, .009, loopWidth * .68, satin);
-      tail.rotation.y = sign * .56;
+      this.bow.add(new Mesh(bowLoop(sign, 0, loop, loop * .62, bowWidth, sign * .32 + lean), satin));
+      this.bow.add(new Mesh(bowLoop(sign, Math.PI / 2, loop * .78, loop * .5, bowWidth * .9, sign * .5 - lean), satin));
+      this.bow.add(new Mesh(bowTail(Math.PI / 4 + (sign > 0 ? 0 : Math.PI) + (random() - .5) * .4, Math.min(w, d) * .55, .12, bowWidth * .9), satin));
     }
-    const knot = new Mesh(new RoundedBoxGeometry(.092 * scale, .061 * scale, .084 * scale, 2, .019), satin);
-    knot.position.y = .018;
+    const knot = new Mesh(new RoundedBoxGeometry(bowWidth * 1.15, bowWidth * .7, bowWidth * 1.15, 2, bowWidth * .25), satin);
+    knot.position.y = bowWidth * .3;
     this.bow.add(knot);
+    for (const child of this.bow.children) (child as Mesh).castShadow = true;
 
-    const silhouette = new BoxGeometry(w + .043, h + .123, d + .043);
-    this.outline = new LineSegments(new EdgesGeometry(silhouette), new LineBasicMaterial({
-      color: new Color(0xffca79).multiplyScalar(1.65), transparent: true, opacity: 0,
-      blending: AdditiveBlending, depthWrite: false,
-    }));
-    silhouette.dispose();
-    this.outline.position.y = (h + .105) * .5;
-    this.wrap.add(this.outline);
-    this.hit = new Mesh(new BoxGeometry(w + .045, h + .11, d + .045), hitMaterial);
-    this.hit.position.y = (h + .11) * .5;
+    this.hit = new Mesh(new BoxGeometry(w + .06, h + lidHeight + loop * .7, d + .06), hitMaterial);
+    this.hit.position.y = (h + lidHeight + loop * .7) / 2;
     this.wrap.add(this.hit);
 
     this.lightHalo = new Sprite(new SpriteMaterial({
-      map: glow, color: 0xffb761, transparent: true, opacity: 0, blending: AdditiveBlending, depthWrite: false,
+      map: glow, color: new Color(1, .72, .4).multiplyScalar(1.6), transparent: true, opacity: 0, blending: AdditiveBlending, depthWrite: false,
     }));
-    this.lightHalo.scale.setScalar(.62);
-    this.light.add(new Mesh(markerCore, markerMaterial), this.lightHalo);
+    this.lightHalo.scale.setScalar(.7);
+    this.light.add(new Mesh(glowCore, glowCoreMaterial), this.lightHalo);
     this.root.add(this.light);
     this.opened = data.opened === true;
     if (this.opened) this.release = this.lidTravel = this.marker = 1;
+    this.update(0, 0, false);
   }
 
+  /** Where the lid lands on the snow, in world space; the lid flips toward it. */
   setLanding(position: Vector3): void {
     this.lidOffset.copy(position).sub(this.anchor).applyAxisAngle(up, -this.root.rotation.y);
-    this.lidOffset.y = groundHeight(position.x, position.z) - this.anchor.y + .089;
+    this.lidOffset.y = groundHeight(position.x, position.z) - this.anchor.y + .01;
+    const flat = new Vector3(this.lidOffset.x, 0, this.lidOffset.z).normalize();
+    this.flipAxis.crossVectors(up, flat).normalize();
+    this.baseYaw.setFromAxisAngle(up, Math.atan2(flat.x, flat.z) * .25);
     this.update(0, 0, false);
   }
 
   update(time: number, delta: number, highlighted: boolean): void {
     this.lift = MathUtils.damp(this.lift, highlighted ? 1 : 0, 12, delta);
-    this.wrap.position.y = this.lift * .085;
-    this.outline.visible = this.lift > .015;
-    this.outline.material.opacity = .39 * this.lift;
-    this.outline.scale.y = this.lidTravel > .2 ? .91 : 1;
-    const sliding = this.release;
-    this.bow.visible = this.lidBands.visible = sliding < .995;
-    this.bow.scale.setScalar(Math.max(.001, 1 - sliding));
-    this.bow.rotation.y = sliding * .75;
-    this.lidBands.scale.setScalar(Math.max(.001, 1 - sliding * .86));
-    for (const { mesh, from, direction } of this.bands) {
-      mesh.visible = sliding < .995;
-      mesh.position.copy(from).addScaledVector(direction, .12 * sliding ** 2);
-      mesh.position.y *= 1 - .83 * sliding;
-      mesh.scale.y = 1 - .92 * sliding;
-      mesh.rotation.x = direction.z * sliding * .73;
-      mesh.rotation.z = -direction.x * sliding * .73;
+    this.wrap.position.y = this.lift * .07;
+    this.paper.emissive.setRGB(1, .6, .3).multiplyScalar(.12 * this.lift);
+
+    const loosen = this.release;
+    this.bow.visible = loosen < .995;
+    this.bow.scale.setScalar(Math.max(.001, 1 - loosen * .9));
+    this.bow.rotation.y = loosen * .9;
+    this.bow.position.x = loosen * .05;
+    this.lidRibbons.visible = loosen < .995;
+    this.lidRibbons.scale.set(1, 1, 1).multiplyScalar(Math.max(.001, 1 - loosen * .6));
+    for (const strap of this.bodyRibbons) {
+      strap.visible = loosen < .995;
+      strap.scale.y = Math.max(.001, 1 - loosen);
+      strap.position.y = this.height / 2 * (1 - loosen);
     }
 
     const travel = this.lidTravel;
-    const across = MathUtils.smoothstep(travel, .14, .83);
-    this.lid.position.set(this.lidOffset.x * across, MathUtils.lerp(this.height + .044, this.lidOffset.y, travel) + .98 * Math.sin(Math.PI * travel), this.lidOffset.z * across);
-    this.lid.rotation.set(Math.PI * MathUtils.smoothstep(travel, .19, 1), travel * .25, -.16 * Math.sin(Math.PI * travel));
+    const across = MathUtils.smoothstep(travel, .12, .9);
+    const lidRest = this.height - .002;
+    this.lid.position.set(
+      this.lidOffset.x * across,
+      MathUtils.lerp(lidRest, this.lidOffset.y, across) + .55 * Math.sin(Math.PI * Math.min(1, travel * 1.1)),
+      this.lidOffset.z * across,
+    );
+    this.spin.setFromAxisAngle(this.flipAxis, Math.PI * .92 * MathUtils.smoothstep(travel, .15, 1));
+    this.lid.quaternion.copy(this.spin).multiply(this.baseYaw.clone().slerp(new Quaternion(), 1 - travel));
+
+    const shine = MathUtils.smoothstep(this.lidTravel, .1, .6);
+    this.innerGlow.material.opacity = shine * (.55 + .2 * this.marker);
+    this.innerGlow.visible = shine > .01;
     this.light.visible = this.marker > .005;
-    this.light.position.y = this.height + .22 + .085 * Math.sin(time * 2.05 + this.anchor.x);
-    this.light.scale.setScalar(Math.max(.01, this.marker * (.91 + .09 * Math.sin(time * 2.9))));
-    this.lightHalo.material.opacity = this.marker * .75;
+    this.light.position.y = this.height + .28 + .07 * Math.sin(time * 1.8 + this.anchor.x);
+    this.light.scale.setScalar(Math.max(.01, this.marker * (.92 + .08 * Math.sin(time * 2.6))));
+    this.lightHalo.material.opacity = this.marker * .85;
   }
 }
 
-export function createGiftBoxes(data: readonly Gift[], random: Random, glow: Texture): GiftBox[] {
+interface Footprint {
+  position: Vector3;
+  radius: number;
+}
+
+function clear(position: Vector3, radius: number, occupied: readonly Footprint[]): boolean {
+  return occupied.every(entry => Math.hypot(position.x - entry.position.x, position.z - entry.position.z) >= radius + entry.radius + .04);
+}
+
+export function createGiftBoxes(data: readonly Gift[], random: Random, glow: Texture) {
+  const crinkle = crinkleTexture(random);
   const occupied: Footprint[] = [];
   const boxes = data.map((gift, i) => {
-    const slot = i % lanes.length;
-    const angle = lanes[slot] + (i >= lanes.length ? Math.PI : 0) + (random() - .5) * .055;
-    const preferredRadius = radii[slot] + (random() - .5) * .13;
-    const facing = angle + (random() - .5) * .49;
-    const scale = .94 + random() * .13;
+    const [bearing, distance, size] = SLOTS[i % SLOTS.length];
+    const angle = bearing + (i >= SLOTS.length ? Math.PI : 0) + (random() - .5) * .05;
     const [w, , d] = dimensions[gift.box.shape];
-    const radius = footprint(w * scale, d * scale);
+    const radius = Math.hypot(w * size + .05, d * size + .05) / 2;
     const position = new Vector3();
-    const place = (distance: number, bearing: number) => {
-      position.set(Math.sin(bearing) * distance, 0, Math.cos(bearing) * distance);
-      return isClear(position, radius, occupied);
-    };
-    if (!slotOffsets.some(offset => place(MathUtils.clamp(preferredRadius + offset, GIFT_RING.inner, GIFT_RING.outer), angle))) {
-      const found = Array.from({ length: 32 }, (_, step) => angle + step * Math.PI / 16)
-        .some(bearing => place(GIFT_RING.outer - .06, bearing));
-      if (!found) throw new Error('No free space for gift ' + gift.id);
+    for (let push = 0; push < 3; push += .08) {
+      position.set(Math.sin(angle) * (distance + push), 0, Math.cos(angle) * (distance + push));
+      if (clear(position, radius, occupied)) break;
     }
-    position.y = groundHeight(position.x, position.z) + .015;
+    position.y = groundHeight(position.x, position.z) + .005;
     occupied.push({ position, radius });
-    return new GiftBox(gift, position, facing, scale, random, glow);
+    return new GiftBox(gift, position, angle + (random() - .5) * .7, size * (.97 + .06 * random()), random, glow, crinkle);
   });
+
+  const props = new Group();
+  let below: GiftBox | undefined;
+  PROPS.forEach(([bearing, distance, size, shape, stacked], i) => {
+    const [color, pattern] = PROP_STYLE[i % PROP_STYLE.length];
+    const gift: Gift = { id: `prop-${i}`, name: '', message: '', image: { kind: 'preset', id: '' }, box: { color, pattern, shape } };
+    const position = new Vector3(Math.sin(bearing) * distance, 0, Math.cos(bearing) * distance);
+    position.y = groundHeight(position.x, position.z) + .005;
+    if (stacked && below) position.y = below.anchor.y + below.height + Math.min(.13, below.height * .2);
+    const box = new GiftBox(gift, position, bearing + (random() - .5) * 1.2, size, random, glow, crinkle);
+    if (!stacked) occupied.push({ position, radius: box.footprint });
+    props.add(box.root);
+    below = box;
+  });
+
   for (const box of boxes) {
-    const bearing = Math.atan2(box.anchor.x, box.anchor.z);
-    const radius = box.footprint;
+    const outward = Math.atan2(box.anchor.x, box.anchor.z);
     const landing = new Vector3();
-    for (let distance = radius * 2 + .12; ; distance += .27) {
-      const found = lidBearings.some(offset => {
-        landing.copy(box.anchor);
-        landing.x += Math.sin(bearing + offset) * distance;
-        landing.z += Math.cos(bearing + offset) * distance;
-        return Math.hypot(landing.x, landing.z) > 3.22 && isClear(landing, radius, occupied);
-      });
-      if (found) break;
+    let placed = false;
+    for (let distance = box.footprint * 1.9 + .1; !placed && distance < 3; distance += .15) {
+      for (const offset of [1.7, -1.7, 2.2, -2.2, 1.25, -1.25]) {
+        landing.set(box.anchor.x + Math.sin(outward + offset) * distance, 0, box.anchor.z + Math.cos(outward + offset) * distance);
+        if (Math.hypot(landing.x, landing.z) > 2.9 && clear(landing, box.footprint * .9, occupied)) {
+          placed = true;
+          break;
+        }
+      }
     }
     box.setLanding(landing);
-    occupied.push({ position: landing, radius });
+    occupied.push({ position: landing.clone(), radius: box.footprint * .9 });
   }
-  return boxes;
+  return { boxes, props };
 }

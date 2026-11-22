@@ -19,7 +19,8 @@ import { createOrnaments } from './scene/tree/ornaments';
 import { GIFT_RING } from './scene/tree/shape';
 import { GiftExperience } from './sequences/gifts';
 import { finishLighting, igniteSequence } from './sequences/ignite';
-import { barkTexture, glowTexture, needleTexture, reflectionTexture } from './textures/procedural';
+import { loadTreeTextures } from './textures/assets';
+import { glowTexture, reflectionTexture } from './textures/procedural';
 
 type Phase = 'loading' | 'waiting' | 'igniting' | 'free' | 'error';
 type FocusTarget = Vector3 | Object3D;
@@ -131,16 +132,20 @@ async function start(): Promise<void> {
   warm.position.set(.04, 1.23, .34);
   const ambient = new HemisphereLight(0xa9c6ff, 0x4f5268, 1.03);
   scene.add(moon, moon.target, fill, warm, ambient);
-  await loadProgress(.45);
+  const textures = await loadTreeTextures(pipeline.renderer, fraction => {
+    loadingStar.style.setProperty('--load', String(.19 + .3 * fraction));
+  });
+  await loadProgress(.5);
 
-  const evergreen = createEvergreen(needleTexture(createRandom(seed ^ 4501)), barkTexture(createRandom(seed ^ 28691)), createRandom(seed ^ 221799));
+  const evergreen = createEvergreen(textures, createRandom(seed ^ 221799));
   const ornaments = createOrnaments(createRandom(seed ^ 890025), evergreen.surface);
   const glow = glowTexture();
   const illumination = lights = createIllumination(createRandom(seed ^ 387149), glow, evergreen.surface);
-  const boxes = createGiftBoxes(exampleScene.gifts, createRandom(seed ^ 651247), glow);
+  evergreen.setBulbGlow(illumination.glowMap);
+  const { boxes, props } = createGiftBoxes(exampleScene.gifts, createRandom(seed ^ 651247), glow);
   const reveal = new GiftReveal(exampleScene.gifts, createRandom(seed ^ 349166), settings.high.giftParticles);
   const gifts = giftExperience = new GiftExperience(boxes, reveal, view, pipeline, canvas, giftDialog, () => phase === 'free');
-  scene.add(evergreen.group, ornaments.group, illumination.group, ...boxes.map(box => box.root), reveal.group);
+  scene.add(evergreen.group, ornaments.group, illumination.group, ...boxes.map(box => box.root), props, reveal.group);
   await loadProgress(.76);
 
   const map = reflectionTexture(createRandom(seed ^ 839771));
@@ -148,6 +153,7 @@ async function start(): Promise<void> {
   const environment = pmrem.fromEquirectangular(map);
   scene.environment = environment.texture;
   ornaments.setReflection(environment.texture);
+  illumination.setReflection(environment.texture);
   map.dispose();
   pmrem.dispose();
   scene.environmentIntensity = .70;
@@ -183,14 +189,15 @@ async function start(): Promise<void> {
     fill.intensity = MathUtils.lerp(.13, .63, dawn);
     ambient.intensity = MathUtils.lerp(.43, 1.03, dawn);
     scene.environmentIntensity = MathUtils.lerp(.29, .70, dawn);
-    warm.intensity = kindled * 21;
+    warm.intensity = kindled * 4;
     terrain.groundGlow.value = kindled;
-    evergreen.localLight.value = kindled;
+    evergreen.uniforms.bulbReach.value = state.bulbs >= 1 ? 1.05 : state.bulbs;
+    evergreen.uniforms.glowStrength.value = 2.6 * MathUtils.smoothstep(state.bulbs, 0, .15);
     ornaments.setLight(kindled);
     pipeline.bloom.intensity = BASE_BLOOM + state.flare * .88;
     sky.update(time, ratio);
     flakes.update(time, ratio, height);
-    illumination.update(time, ratio);
+    illumination.update(time, ratio, view.camera);
     gifts.update(time, delta, ratio);
     pipeline.setExposure(MathUtils.lerp(.46, 1, dawn) * (1 - .57 * gifts.dim));
     pipeline.render(delta);
@@ -200,7 +207,7 @@ async function start(): Promise<void> {
   if (skipIntro) view.setIntro(1);
   const unlit = { ...state };
   finishLighting(state);
-  illumination.update(0, pipeline.renderer.getPixelRatio());
+  illumination.update(0, pipeline.renderer.getPixelRatio(), view.camera);
   await loadProgress(.9);
   await pipeline.renderer.compileAsync(scene, view.camera);
   if (!skipIntro) Object.assign(state, unlit);

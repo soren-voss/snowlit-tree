@@ -4,7 +4,7 @@ import {
 } from 'three';
 import type { PerspectiveCamera, Texture } from 'three';
 import type { Random } from '../../core/random';
-import { presetIllustration } from '../../data/gifts';
+import { presetImage } from '../../data/gifts';
 import type { Gift } from '../../data/gifts';
 import type { GiftBox } from './boxes';
 
@@ -16,28 +16,31 @@ export class GiftReveal {
   private readonly prints = new Map<string, Texture>();
   private readonly print: Mesh<PlaneGeometry, MeshBasicMaterial>;
   private readonly materials: MeshBasicMaterial[];
+  private age = 0;
 
   constructor(data: readonly Gift[], random: Random, capacity: number) {
     const frameMaterial = new MeshBasicMaterial({
-      color: new Color(0xffcc85).multiplyScalar(1.27), side: DoubleSide, transparent: true, depthWrite: false,
+      color: new Color(0xe8b968).multiplyScalar(1.15), side: DoubleSide, transparent: true, depthWrite: false,
     });
     const paper = new MeshBasicMaterial({
-      color: new Color(0xffedcd).multiplyScalar(1.22), side: DoubleSide, transparent: true, depthWrite: false,
+      color: new Color(0xf3e6cf).multiplyScalar(.92), side: DoubleSide, transparent: true, depthWrite: false,
     });
-    const ink = new MeshBasicMaterial({ color: 0xffe1a9, transparent: true, depthWrite: false });
+    const ink = new MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false });
     this.materials = [frameMaterial, paper, ink];
     const frame = new Mesh(new PlaneGeometry(.81, 1.05), frameMaterial);
     const inside = new Mesh(new PlaneGeometry(.793, 1.032), paper);
     inside.position.z = .002;
-    this.print = new Mesh(new PlaneGeometry(.66, .462), ink);
+    this.print = new Mesh(new PlaneGeometry(.68, .453), ink);
     this.print.position.set(0, .172, .004);
+    frame.renderOrder = 3;
+    inside.renderOrder = 4;
+    this.print.renderOrder = 5;
     this.card.add(frame, inside, this.print);
-    this.card.renderOrder = 3;
     this.card.visible = false;
 
     const loader = new TextureLoader();
     for (const item of data) {
-      const art = presetIllustration(item.image);
+      const art = presetImage(item.image);
       if (art && !this.prints.has(art)) {
         const texture = loader.load(art);
         texture.colorSpace = SRGBColorSpace;
@@ -48,10 +51,10 @@ export class GiftReveal {
     const origin = [], motion = [], brightness = [];
     for (let i = 0; i < capacity; i++) {
       const angle = random() * Math.PI * 2;
-      const speed = .22 + random() * 1.36;
-      origin.push((random() - .5) * .33, random() * .11, (random() - .5) * .32);
-      motion.push(Math.sin(angle) * speed, .78 + random() * 2.5, Math.cos(angle) * speed);
-      brightness.push(.18 + random() * .82, random());
+      const speed = .3 + random() * 1.1;
+      origin.push((random() - .5) * .3, random() * .1, (random() - .5) * .3);
+      motion.push(Math.sin(angle) * speed, 1.1 + random() * 2.6, Math.cos(angle) * speed);
+      brightness.push(.2 + random() * .8, random());
     }
     const geometry = new BufferGeometry();
     geometry.setAttribute('position', new Float32BufferAttribute(origin, 3));
@@ -65,14 +68,19 @@ export class GiftReveal {
         attribute vec2 glint;
         varying float glow;
         void main() {
-          float t = max(0., age - glint.y * .21);
-          vec3 p = position + motion * t;
-          p.y -= 1.25 * t * t;
+          float glitter = step(.62, glint.y);
+          float t = max(0., age - glint.y * .25);
+          float swirl = t * (1.8 + 2. * glint.x) * (glint.y > .31 ? 1. : -1.);
+          vec2 spread = motion.xz * (1. - exp(-t * 2.2)) * mix(.55, .8, glitter);
+          spread = mat2(cos(swirl), -sin(swirl), sin(swirl), cos(swirl)) * spread;
+          float rise = mix(motion.y * (1. - exp(-t * 1.5)) * .85, motion.y * .55 * (1. - exp(-t * 2.4)) - .16 * t * t, glitter);
+          vec3 p = position + vec3(spread.x, rise, spread.y);
           vec4 v = modelViewMatrix * vec4(p, 1.);
           gl_Position = projectionMatrix * v;
-          gl_PointSize = clamp((4.0 + glint.x * 17.) * ratio / max(1., -v.z), 1.2, 11.);
-          glow = smoothstep(.0, .08, t) * (1. - smoothstep(.36 + glint.y * .29, 1.25, t))
-              * (.47 + .53 * glint.x) * smoothstep(-.3,.06,p.y);
+          gl_PointSize = clamp((5. + glint.x * 20.) * mix(1., .6, glitter) * ratio / max(1., -v.z), 1.2, 14.);
+          float twinkle = mix(1., .45 + .55 * pow(.5 + .5 * sin(t * 18. + glint.y * 90.), 3.), glitter);
+          glow = smoothstep(.0, .06, t) * (1. - smoothstep(mix(.85, 1.5, glitter) + glint.y * .3, mix(1.4, 2.5, glitter), t))
+              * (.4 + .6 * glint.x) * twinkle;
         }`,
       fragmentShader: `
         varying float glow;
@@ -104,7 +112,7 @@ export class GiftReveal {
         void main() {
           float gradient = (1. - smoothstep(.02, .98, band.y)) * smoothstep(.0, .08, band.y);
           float rays = .72 + .28 * cos(band.x * 6.283185 * 9.);
-          gl_FragColor = vec4(3.65, 1.63, .41, strength * gradient * rays * pow(edge, .65) * .27);
+          gl_FragColor = vec4(3.65, 1.8, .6, strength * gradient * rays * pow(edge, .65) * .42);
           #include <colorspace_fragment>
         }`,
       transparent: true, depthWrite: false, side: DoubleSide, blending: AdditiveBlending,
@@ -122,7 +130,7 @@ export class GiftReveal {
   }
 
   prepare(box: GiftBox): void {
-    const art = presetIllustration(box.data.image);
+    const art = presetImage(box.data.image);
     this.print.material.map = art ? this.prints.get(art) ?? null : null;
     this.print.material.needsUpdate = true;
     this.print.visible = this.print.material.map !== null;
@@ -130,11 +138,26 @@ export class GiftReveal {
     this.beam.position.copy(this.burst.position).y += .69;
   }
 
-  spark(age: number, strength: number): void {
-    this.burst.visible = age >= 0 && age < 1.53;
-    this.burst.material.uniforms.age.value = age;
+  /** Starts the particle burst; it then runs on its own clock via tick(). */
+  burstOut(): void {
+    this.age = 0;
+    this.burst.visible = true;
+  }
+
+  tick(delta: number): void {
+    if (!this.burst.visible) return;
+    this.age += delta;
+    this.burst.material.uniforms.age.value = this.age;
+    if (this.age > 2.8) this.burst.visible = false;
+  }
+
+  beamStrength(strength: number): void {
     this.beam.visible = strength > .002;
     this.beam.material.uniforms.strength.value = strength;
+  }
+
+  stopBurst(): void {
+    this.burst.visible = false;
   }
 
   placeCard(box: GiftBox, camera: PerspectiveCamera, progress: number, opacity: number): void {
