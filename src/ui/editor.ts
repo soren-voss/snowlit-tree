@@ -48,8 +48,8 @@ function textInput(value: string | undefined, limit: number, placeholder: string
   return input;
 }
 
-function segmented<T extends string>(name: string, options: [T, string][], current: T, onPick: (value: T) => void): HTMLElement {
-  const group = h('div', { class: 'segmented', attrs: { role: 'radiogroup', 'aria-label': name } });
+function segmented<T extends string>(name: string, options: [T, string][], current: T, onPick: (value: T) => void, wrap = false): HTMLElement {
+  const group = h('div', { class: wrap ? 'segmented wrap' : 'segmented', attrs: { role: 'radiogroup', 'aria-label': name } });
   for (const [value, label] of options) {
     const button = h('button', { type: 'button', textContent: label, attrs: { role: 'radio', 'aria-checked': String(value === current) } });
     button.addEventListener('click', () => {
@@ -237,7 +237,7 @@ export class Editor {
     const remove = h('button', { type: 'button', class: 'danger' }, icon('trash'), '删除这个礼物');
     remove.addEventListener('click', () => {
       if (!remove.dataset.armed) {
-        remove.dataset.armed = '';
+        remove.dataset.armed = 'yes';
         remove.lastChild!.textContent = '再点一次确认删除';
         clearTimeout(this.confirmTimer);
         this.confirmTimer = setTimeout(() => { delete remove.dataset.armed; remove.lastChild!.textContent = '删除这个礼物'; }, 3000);
@@ -300,7 +300,7 @@ export class Editor {
       }
       scene.music = value;
       this.host.commit('music');
-    });
+    }, true);
 
     const wishes = h('ul', { class: 'wish-list' });
     for (const wish of scene.wishes) {
@@ -332,7 +332,7 @@ export class Editor {
     const reset = h('button', { type: 'button', class: 'danger', textContent: '清空并恢复示例树' });
     reset.addEventListener('click', async () => {
       if (!reset.dataset.armed) {
-        reset.dataset.armed = '';
+        reset.dataset.armed = 'yes';
         reset.textContent = '会删除你的全部礼物和照片，再点一次确认';
         return;
       }

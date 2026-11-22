@@ -41,7 +41,7 @@ export const THEMES: Record<ThemeId, Theme> = {
   },
   forest: {
     label: '森林绿铜', swatch: ['#2f6e4a', '#c07a3e'],
-    mirror: [0x1f5a3c, 0x2f7a4f, 0xb87333, 0xd08c4a, 0x153d2a], satin: [0x245c3e, 0x9a5b2a, 0xc98b4e, 0x3c6e4a], pearl: [0xe8d8b8, 0xcdb48a],
+    mirror: [0xb87333, 0xd08c4a, 0xc9a25a, 0x8a4a22, 0x2f7a4f], satin: [0x9a5b2a, 0xc98b4e, 0xe0b070, 0x7a3a1c], pearl: [0xe8d8b8, 0xcdb48a],
     hardware: 0xb87d4a, bulbDeep: [1, .58, .22], bulbBright: [1, .76, .45], spill: [1, .48, .15], garland: 0xb8733a,
     star: { face: 0xd9a35e, rim: 0xa86a32, emissive: 0xffa94d, halo: [1, .66, .3] },
     particles: [[1, .66, .3], [1, .9, .7], [.5, .9, .55]],

@@ -110,7 +110,7 @@ export function createSky(random: Random) {
       material.uniforms.pixelScale.value = ratio;
       if (meteors.mesh.visible) {
         meteors.uniforms.shower.value += delta;
-        if (meteors.uniforms.shower.value > 9) meteors.mesh.visible = false;
+        if (meteors.uniforms.shower.value > 11.5) meteors.mesh.visible = false;
       }
     },
   };
@@ -121,7 +121,7 @@ function meteorShower(random: Random) {
   const count = 22;
   const corners: number[] = [], data: number[] = [], indices: number[] = [];
   for (let i = 0; i < count; i++) {
-    const meteor = [(random() - .5) * 1.9, .3 + random() * .45, random() * 6, random()];
+    const meteor = [(random() - .5) * 1.9, .3 + random() * .45, random() * 9, random()];
     const heading = (random() < .5 ? -1 : 1) * (.45 + random() * .5);
     for (const [along, side] of [[0, -1], [0, 1], [1, -1], [1, 1]]) {
       corners.push(along, side, heading);

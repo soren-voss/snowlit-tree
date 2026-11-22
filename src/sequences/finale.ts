@@ -8,11 +8,11 @@ const TRAIL = 110;
 
 /** A fading ribbon of sparks that follows the star while it flies. */
 export function createStarTrail() {
-  const positions = new Float32Array(TRAIL * 3);
   const fade = new Float32Array(TRAIL);
   for (let i = 0; i < TRAIL; i++) fade[i] = 1 - i / TRAIL;
   const geometry = new BufferGeometry();
-  geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('position', new Float32BufferAttribute(new Float32Array(TRAIL * 3), 3));
+  const positions = geometry.attributes.position.array as Float32Array;
   geometry.setAttribute('fade', new Float32BufferAttribute(fade, 1));
   const points = new Points(geometry, new ShaderMaterial({
     uniforms: { ratio: { value: 1 }, strength: { value: 0 } },
@@ -42,6 +42,7 @@ export function createStarTrail() {
   const material = points.material;
   const spot = new Vector3();
   let filled = false;
+  let clock = 0;
   return {
     points,
     start(from: Vector3) {
@@ -51,8 +52,12 @@ export function createStarTrail() {
     },
     stop() { points.visible = false; filled = false; },
     setStrength(value: number) { material.uniforms.strength.value = value; },
-    update(head: Object3D, ratio: number) {
+    /** Samples the head 60 times a second regardless of frame rate, so the trail length stays the same. */
+    update(head: Object3D, ratio: number, delta: number) {
       if (!filled) return;
+      clock += delta;
+      if (clock < 1 / 60) return;
+      clock = Math.min(clock - 1 / 60, .1);
       positions.copyWithin(3, 0, (TRAIL - 1) * 3);
       head.getWorldPosition(spot);
       positions.set([spot.x + (Math.random() - .5) * .05, spot.y + (Math.random() - .5) * .05, spot.z + (Math.random() - .5) * .05], 0);

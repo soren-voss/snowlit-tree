@@ -174,10 +174,11 @@ async function start(): Promise<void> {
   await resolveImages();
   const imageFor = (gift: Gift) => gift.image.kind === 'preset' ? presetImage(gift.image)
     : gift.image.kind === 'upload' ? imageUrls.get(gift.image.blobKey) : undefined;
-  if (tree.recipient) {
-    document.title = `送给${tree.recipient}的圣诞树 · 雪夜礼物树`;
-    invitation.querySelector('span')!.textContent = `${tree.recipient}，轻触点亮`;
+  function applyRecipient(): void {
+    document.title = tree.recipient ? `送给${tree.recipient}的圣诞树 · 雪夜礼物树` : '雪夜礼物树';
+    invitation.querySelector('span')!.textContent = tree.recipient ? `${tree.recipient}，轻触点亮` : '轻触点亮';
   }
+  applyRecipient();
 
   await loadProgress(.19);
   const world = worldRef = new Scene();
@@ -306,7 +307,10 @@ async function start(): Promise<void> {
   let collectTimer: ReturnType<typeof setTimeout> | undefined;
   function commit(change: Change): void {
     if (!guest) void saveScene(tree);
-    if (change === 'text' || change === 'image') syncGiftData();
+    if (change === 'text' || change === 'image') {
+      syncGiftData();
+      applyRecipient();
+    }
     else if (change === 'layout') {
       clearTimeout(rebuildTimer);
       rebuildTimer = setTimeout(rebuildGifts, 120);
@@ -322,6 +326,7 @@ async function start(): Promise<void> {
 
   async function replaceScene(next: TreeScene): Promise<void> {
     tree = scene = next;
+    applyRecipient();
     await resolveImages();
     await saveScene(tree, true);
     rebuildGifts();
@@ -436,9 +441,9 @@ async function start(): Promise<void> {
     effects.push(new Timeline(sequence(
       parallel(
         starFlight(illumination.star, illumination.starHome, bearing, trail, state),
-        sequence(wait(1.4), call(() => hud.showFinale(finaleTitle(), tree.message))),
+        sequence(wait(5.4), call(() => hud.showFinale(finaleTitle(), tree.message))),
       ),
-      wait(3.6),
+      wait(4.6),
       call(() => hud.hideFinale()),
     )));
   }
@@ -571,7 +576,7 @@ async function start(): Promise<void> {
     flakes.update(time, ratio, height);
     illumination.update(time, ratio, view.camera);
     wishes.update(time, delta);
-    trail.update(illumination.star, ratio);
+    trail.update(illumination.star, ratio, delta);
     gifts.update(time, delta, ratio);
     if (noteFor && hud.wishNoteOpen) {
       const anchor = wishes.anchor(noteFor);
