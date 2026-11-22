@@ -2,9 +2,14 @@
 
 用真实项目画面逐帧合成的约 54 秒宣传片：米白打字开场 → 雪夜构建与点亮 → 6 个特色 → 彩蛋 → 结尾卡。配乐和音效全部由 WebAudio 程序合成（《铃儿响叮当》为公有领域曲目）。
 
+## 两个版本
+- `index.html`：带字幕的特色介绍版（约 54 秒）。
+- `film.html`：无字版，仿模型发布“作品展示”短片：打字下需求 → 方案文档滚动 → 纸面设计稿（枝叶贴图、线稿树）→ 粒子聚树点亮 → 拆礼物 → 彩蛋 → 黑场（47 秒）。渲染时加 `--url http://localhost:5173/promo/film.html --out film.mp4`。
+
 ## 文件
 - `index.html` / `promo.css` / `promo.ts`：合成页面，所有画面都由时间 `t` 决定；内嵌 5 个项目实例（iframe）。
-- `music.ts`：离线渲染配乐与音效（`full` 含配乐，`effects` 只有音效）。
+- `music.ts`：离线渲染配乐与音效（`full` 含配乐，`effects` 只有音效）；`renderFilmAudio` 是无字版的《平安夜》配乐。
+- `shared.ts`：两个版本共用的缓动、DOM、项目实例与镜头工具。
 - `vt.js`：虚拟时钟，注入每个页面，让定时器、动画帧和 CSS 动画只随渲染脚本推进，保证逐帧一致。
 - `render.mjs`：用系统 Chrome（DevTools 协议，无 npm 依赖）逐帧截图，交给 ffmpeg 编码。
 

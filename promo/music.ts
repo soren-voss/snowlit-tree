@@ -22,7 +22,7 @@ export interface AudioCues {
 
 const RATE = 48000;
 const BEAT = .5; // 120 BPM
-const midi = (name: string) => {
+export const midi = (name: string) => {
   const match = /^([A-G])(#|b)?(\d)$/.exec(name)!;
   const base = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }[match[1]]!;
   return 12 * (Number(match[3]) + 1) + base + (match[2] === '#' ? 1 : match[2] === 'b' ? -1 : 0);
@@ -35,7 +35,7 @@ const CHORDS: Record<string, string[]> = {
 const ROOTS: Record<string, string> = { C: 'C2', Cmaj7: 'C2', Am7: 'A1', Fmaj7: 'F1', F: 'F1', G: 'G1', G7: 'G1', D7: 'D2' };
 
 /** Parses "E5 E5 E5:2 R:1" into [beat offset, midi, beats]. */
-function phrase(text: string): [number, number, number][] {
+export function phrase(text: string): [number, number, number][] {
   const notes: [number, number, number][] = [];
   let beat = 0;
   for (const token of text.trim().split(/\s+/)) {
@@ -47,11 +47,11 @@ function phrase(text: string): [number, number, number][] {
   return notes;
 }
 
-export async function renderAudio(mix: 'full' | 'effects', cues: AudioCues): Promise<string> {
-  const ctx = new OfflineAudioContext(2, Math.ceil(cues.duration * RATE), RATE);
+/** Buses and synthesized voices shared by every score. */
+export function createEngine(duration: number) {
+  const ctx = new OfflineAudioContext(2, Math.ceil(duration * RATE), RATE);
   let seed = 20261224;
   const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-  const withMusic = mix === 'full';
 
   // ---------- buses ----------
   const master = ctx.createGain();
@@ -63,8 +63,8 @@ export async function renderAudio(mix: 'full' | 'effects', cues: AudioCues): Pro
   compressor.release.value = .25;
   master.connect(compressor).connect(ctx.destination);
   master.gain.setValueAtTime(1, 0);
-  master.gain.setValueAtTime(1, cues.duration - 1.2);
-  master.gain.linearRampToValueAtTime(0, cues.duration - .05);
+  master.gain.setValueAtTime(1, duration - 1.2);
+  master.gain.linearRampToValueAtTime(0, duration - .05);
 
   const reverb = ctx.createConvolver();
   const impulse = ctx.createBuffer(2, RATE * 3, RATE);
@@ -265,6 +265,13 @@ export async function renderAudio(mix: 'full' | 'effects', cues: AudioCues): Pro
     }
   };
 
+  const render = async (peak: number) => encodeWav(await ctx.startRendering(), peak);
+  return { ctx, rand, music, drums, sfx, tine, pad, bass, noiseHit, sine, kick, snare, hat, sleigh, crash, boom, keyClick, uiClick, whoosh, riser, bell, sparkle, render };
+}
+
+export async function renderAudio(mix: 'full' | 'effects', cues: AudioCues): Promise<string> {
+  const withMusic = mix === 'full';
+  const { music, sfx, tine, pad, bass, noiseHit, sine, kick, snare, hat, sleigh, crash, boom, keyClick, uiClick, whoosh, riser, bell, sparkle, render } = createEngine(cues.duration);
   // ---------- sound effects (in both mixes) ----------
   cues.typing.forEach(at => keyClick(at));
   keyClick(cues.send, .2);
@@ -378,8 +385,7 @@ export async function renderAudio(mix: 'full' | 'effects', cues: AudioCues): Pro
     kick(END, .6);
   }
 
-  const buffer = await ctx.startRendering();
-  return encodeWav(buffer, withMusic ? .89 : .7);
+  return render(withMusic ? .89 : .7);
 }
 
 /** 16-bit PCM WAV, peak-normalised, returned as base64 for the DevTools bridge. */
@@ -406,4 +412,95 @@ function encodeWav(buffer: AudioBuffer, peak: number): string {
   let binary = '';
   for (let i = 0; i < raw.length; i += 0x8000) binary += String.fromCharCode(...raw.subarray(i, i + 0x8000));
   return btoa(binary);
+}
+
+// ---------- wordless film score: calm, builds into "Silent Night" when the star lights ----------
+export interface FilmCues {
+  duration: number;
+  typing: number[];
+  send: number;
+  reply: number[];
+  tool: number;
+  scroll: number;
+  paper: number;
+  drawing: number;
+  night: number;
+  converge: number;
+  ignite: number;
+  flare: number;
+  giftOpen: number;
+  cuts: number[];
+  finale: number;
+}
+
+export async function renderFilmAudio(mix: 'full' | 'effects', cues: FilmCues): Promise<string> {
+  const withMusic = mix === 'full';
+  const { music, sfx, tine, pad, bass, noiseHit, sine, kick, sleigh, crash, boom, keyClick, uiClick, whoosh, riser, bell, sparkle, render } = createEngine(cues.duration);
+  const beat = 60 / 92;
+
+  // effects
+  cues.typing.forEach(at => keyClick(at, .1));
+  uiClick(cues.send, .2);
+  cues.reply.forEach((at, i) => { if (i % 3 === 0) keyClick(at, .05); });
+  tine(cues.tool, 91, .1, sfx, .6);
+  whoosh(cues.scroll + .6, 2.6, true, .09);
+  whoosh(cues.paper - .2, .9, false, .08);
+  whoosh(cues.drawing - .3, .8, true, .07);
+  whoosh(cues.night - .2, 1.2, false, .09);
+  sparkle(cues.converge + .3, 6, .07);
+  sparkle(cues.converge + 1.6, 6, .07);
+  bell(cues.ignite, 523.25, .42);
+  sparkle(cues.ignite + .6, 7, .08);
+  boom(cues.flare, .42);
+  crash(cues.flare, .12);
+  bell(cues.flare, 1046.5, .16);
+  const g = cues.giftOpen;
+  noiseHit(g + 1.76, .5, 'bandpass', 700, 3200, .18, sfx, .15, 1.2);
+  sine(g + 2.38, 190, 70, .16, .36, sfx, .12);
+  sparkle(g + 2.68, 6, .09);
+  sparkle(g + 4.38, 4, .08);
+  cues.cuts.forEach(at => whoosh(at - .3, .6, true, .06));
+  [72, 76, 79, 84, 88, 91, 96].forEach((note, i) => tine(cues.finale + i * .11, note, .1, sfx, 1.2));
+  sparkle(cues.finale + 1.2, 10, .06);
+
+  if (withMusic) {
+    // the prompt: soft pad and a few far-apart notes
+    pad(.3, cues.send - .3, 'Cmaj7', .045, 850);
+    [[1.2, 'E5'], [2.5, 'G5'], [3.8, 'B5'], [5.1, 'D6'], [6.4, 'C6']].forEach(([at, note]) => tine(at as number, midi(note as string), .07, music, 1.4, .2));
+    // the plan: harmony moves, gentle pulse starts
+    pad(cues.send, cues.paper - cues.send, 'Am7', .05, 950);
+    for (let at = cues.scroll, i = 0; at < cues.paper; at += beat / 2, i++) tine(at, midi(['A5', 'C6', 'E6', 'G6'][i % 4]), .05 + .03 * i / 12, music, .6, i % 2 ? .3 : -.3);
+    // paper: steady music-box arpeggios over F and G
+    pad(cues.paper, cues.drawing - cues.paper, 'Fmaj7', .05, 1100);
+    pad(cues.drawing, cues.night - cues.drawing, 'G', .05, 1200);
+    bass(cues.paper, midi('F1'), cues.drawing - cues.paper, .22);
+    bass(cues.drawing, midi('G1'), cues.night - cues.drawing, .22);
+    for (let at = cues.paper, i = 0; at < cues.night - .2; at += beat / 2, i++) {
+      const chord = at < cues.drawing ? ['F5', 'A5', 'C6', 'E6'] : ['G5', 'B5', 'D6', 'G6'];
+      tine(at, midi(chord[i % 4]) + (i % 8 >= 4 ? 12 : 0), .075, music, .7, i % 2 ? .3 : -.3);
+    }
+    // night: low and quiet while the tree gathers, then rise into the star
+    pad(cues.night, cues.flare - cues.night, 'Am7', .045, 700);
+    bass(cues.night, midi('A1'), cues.ignite - cues.night, .2);
+    bass(cues.ignite, midi('G1'), cues.flare - cues.ignite - .1, .24);
+    riser(cues.flare - 2.6, cues.flare - .04, .1);
+    for (let at = cues.flare - 2; at < cues.flare - .1; at += beat / 2) kick(at, .18 + (at - cues.flare + 2) * .1);
+    // the star lights: "Silent Night" on music box, warm pad, soft bass and sleigh bells
+    const melody = phrase('G5:1.5 A5:.5 G5 E5:3 G5:1.5 A5:.5 G5 E5:3 D6:2 D6 B5:3 C6:2 C6 G5:3');
+    for (const [b, note] of melody) {
+      tine(cues.flare + b * beat, note, .19, music, 1.3, -.06);
+      tine(cues.flare + b * beat, note + 12, .05, music, .8, .3);
+    }
+    const chords = ['C', 'C', 'C', 'C', 'G', 'G', 'C', 'C'];
+    chords.forEach((chord, bar) => {
+      const at = cues.flare + bar * 3 * beat;
+      pad(at, 3 * beat, chord, .045, 1300);
+      bass(at, midi(chord === 'G' ? 'G1' : 'C2'), 3 * beat * .95, .26);
+      tine(at + beat, midi(chord === 'G' ? 'B4' : 'E4'), .05, music, .8);
+      tine(at + 2 * beat, midi(chord === 'G' ? 'D5' : 'G4'), .05, music, .8);
+      if (bar >= 2) for (let i = 0; i < 3; i++) sleigh(at + i * beat, .025);
+    });
+    pad(cues.flare + 24 * beat, 3, 'C', .05, 1200);
+  }
+  return render(withMusic ? .89 : .7);
 }

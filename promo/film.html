@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./film.css" />
+    <title>雪夜礼物树 · 无字版</title>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position:absolute">
+      <filter id="vblur" x="-5%" y="-20%" width="110%" height="140%"><feGaussianBlur id="vblur-amount" stdDeviation="0 0" /></filter>
+      <filter id="paper-noise"><feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="3" seed="7" /><feColorMatrix values="0 0 0 0 .42  0 0 0 0 .3  0 0 0 0 .16  0 0 0 .55 0" /></filter>
+    </svg>
+    <main id="film"></main>
+    <script type="module" src="./film.ts"></script>
+  </body>
+</html>

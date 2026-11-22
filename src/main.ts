@@ -1,5 +1,5 @@
-import { DirectionalLight, HemisphereLight, MathUtils, PMREMGenerator, PointLight, Raycaster, Scene, Vector2, Vector3 } from 'three';
-import type { Object3D } from 'three';
+import { Color, DirectionalLight, HemisphereLight, Light, MathUtils, MeshBasicMaterial, PMREMGenerator, PointLight, Raycaster, Scene, Vector2, Vector3 } from 'three';
+import type { Fog, FogExp2, Object3D, Texture } from 'three';
 import { AudioDirector } from './audio/audio';
 import { SceneCamera } from './core/camera';
 import { QualityMonitor, settings } from './core/quality';
@@ -80,6 +80,8 @@ interface TreeDebug {
   orbitPose(): PoseArrays | undefined;
   setMagicForm(form: number, target: 0 | 1): void;
   setTheme(theme: ThemeId): void;
+  /** Tree-only white wireframe on black, for the promo's line-drawing shot. */
+  setBlueprint(on: boolean): void;
 }
 
 declare global {
@@ -115,6 +117,7 @@ let ignite = () => {};
 const actions = {
   setMagic: (_on: boolean) => {}, openEditor: () => {}, closeEditor: () => {}, addWish: (_text: string) => {}, playFinale: () => {}, startDemo: () => {},
   setClean: (_clean: boolean) => {}, setMagicForm: (_form: number, _target: 0 | 1) => {}, setTheme: (_theme: ThemeId) => {},
+  setBlueprint: (_on: boolean) => {},
 };
 
 const api: TreeDebug = {
@@ -158,6 +161,7 @@ const api: TreeDebug = {
   },
   setMagicForm: (form, target) => actions.setMagicForm(form, target),
   setTheme: theme => actions.setTheme(theme),
+  setBlueprint: on => actions.setBlueprint(on),
 };
 
 if (import.meta.env.DEV) window.__tree = api;
@@ -522,7 +526,38 @@ async function start(): Promise<void> {
     setClean: (clean: boolean) => hud.setClean(clean),
     setMagicForm: (form: number, target: 0 | 1) => { magic.setForm(form); magic.setTarget(target); },
     setTheme: (theme: ThemeId) => { tree.theme = theme; applyTheme(); },
+    setBlueprint,
   });
+
+  // ---------- promo line drawing ----------
+  let blueprint = false;
+  const lineMaterial = new MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: .3, depthWrite: false });
+  const blueprintKeeps = new Set<Object3D>([evergreen.group, ornaments.group, illumination.group]);
+  const blueprintHidden: Object3D[] = [];
+  let savedBackground: Color | Texture | null = null;
+  let savedFog: Fog | FogExp2 | null = null;
+  function setBlueprint(on: boolean): void {
+    if (on === blueprint) return;
+    blueprint = on;
+    if (on) {
+      for (const child of world.children) {
+        if (blueprintKeeps.has(child) || child instanceof Light || !child.visible) continue;
+        child.visible = false;
+        blueprintHidden.push(child);
+      }
+      savedBackground = world.background as Color | Texture | null;
+      savedFog = world.fog;
+      world.background = new Color(0);
+      world.fog = null;
+      world.overrideMaterial = lineMaterial;
+    } else {
+      for (const child of blueprintHidden) child.visible = true;
+      blueprintHidden.length = 0;
+      world.background = savedBackground;
+      world.fog = savedFog;
+      world.overrideMaterial = null;
+    }
+  }
 
   // ---------- wish notes ----------
   const ray = new Raycaster();
@@ -586,7 +621,7 @@ async function start(): Promise<void> {
     evergreen.uniforms.glowStrength.value = 2.6 * MathUtils.smoothstep(state.bulbs, 0, .15);
     ornaments.setLight(kindled);
     wishes.setLight(kindled);
-    pipeline.bloom.intensity = BASE_BLOOM + state.flare * .88 + magic.form * .25;
+    pipeline.bloom.intensity = blueprint ? 0 : BASE_BLOOM + state.flare * .88 + magic.form * .25;
     cutHeight.value = magic.update(time, delta, ratio);
     if ((magic.form > 0) === treeShadows) {
       treeShadows = !treeShadows;
@@ -608,7 +643,7 @@ async function start(): Promise<void> {
         hud.placeWishNote((projected.x + 1) / 2 * width, (1 - projected.y) / 2 * height, projected.z < 1 && magic.form === 0);
       }
     }
-    pipeline.setExposure(MathUtils.lerp(.46, 1, dawn) * (1 - .57 * gifts.dim));
+    pipeline.setExposure(blueprint ? 1 : MathUtils.lerp(.46, 1, dawn) * (1 - .57 * gifts.dim));
     pipeline.render(delta);
   };
 

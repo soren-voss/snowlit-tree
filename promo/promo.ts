@@ -5,6 +5,8 @@ import type { ThemeId } from '../src/data/gifts';
 import { encodeScene } from '../src/data/share';
 import { renderAudio } from './music';
 import type { AudioCues } from './music';
+import { clamp01, envelope, escapeHtml, h, Instance, inOut, lerp, orbit, outBack, outCubic, ramp, style, typed, typingTimes, gpuInfo } from './shared';
+import type { Pose } from './shared';
 
 // ---------- timing (seconds) ----------
 const DROP = 14.4; // star ignites on the beat; everything after is on a 120 BPM grid
@@ -25,101 +27,11 @@ const FINALE_AT = 45.7;
 const EDIT_CLICKS = { row: 26.95, scroll: [27.25, 27.85], color: 28.15, pattern: 28.85, shape: 29.55 };
 const WISH_OPEN_AT = 38.55, WISH_TYPE = [38.95, 39.75], WISH_SUBMIT_AT = 40.05;
 
-/** Deterministic typing rhythm: shared by the visuals and the key-click sounds. */
-function typingTimes(text: string, start: number): number[] {
-  let seed = 7, at = start;
-  const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-  return Array.from(text).map((char, i, all) => {
-    if (i) at += char === '\n' ? .05 : .085 + rand() * .07 + ('，。'.includes(all[i - 1]) ? .22 : 0);
-    return at;
-  });
-}
 const PROMPT_TIMES = typingTimes(PROMPT, .95);
 const REPLY_TIMES = Array.from(REPLY).map((_, i) => 5.45 + i * .055);
 
-// ---------- helpers ----------
-const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
-const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
-const ramp = (t: number, a: number, b: number) => clamp01((t - a) / (b - a));
-const outCubic = (x: number) => 1 - (1 - x) ** 3;
-const inOut = (x: number) => x < .5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2;
-const outBack = (x: number) => 1 + 2.2 * (x - 1) ** 3 + 1.2 * (x - 1) ** 2;
-/** Fades in over [a, b], out over [c, d]. */
-const envelope = (t: number, a: number, b: number, c: number, d: number) => Math.min(outCubic(ramp(t, a, b)), 1 - inOut(ramp(t, c, d)));
-
-function h<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', html = ''): HTMLElementTagNameMap[K] {
-  const element = document.createElement(tag);
-  if (className) element.className = className;
-  if (html) element.innerHTML = html;
-  return element;
-}
 const film = document.querySelector<HTMLElement>('#film')!;
 const layer = (name: string) => film.appendChild(h('div', `layer ${name}`));
-const style = (element: HTMLElement, values: Partial<Record<string, string | number>>) => {
-  for (const [key, value] of Object.entries(values)) element.style.setProperty(key, String(value));
-};
-
-// ---------- live app instances ----------
-type Vec3 = [number, number, number];
-interface Pose { position: Vec3; target: Vec3 }
-interface TreeApi {
-  ready: boolean;
-  phase: string;
-  setClean(clean: boolean): void;
-  setCameraPose(pose: Pose | null): void;
-  setMagicForm(form: number, target: 0 | 1): void;
-  setMagic(on: boolean): void;
-  setTheme(theme: ThemeId): void;
-  openGift(id: string): boolean;
-  openEditor(): void;
-  closeEditor(): void;
-  playFinale(): void;
-  ignite(): void;
-}
-type AppWindow = Omit<Window, "__tree"> & { __tree?: TreeApi; __vt?: { step(ms: number): void } };
-
-class Instance {
-  readonly frame = h('div', 'frame');
-  readonly iframe = h('iframe');
-  private loaded = false;
-  constructor(src: string, readonly width: number, readonly height: number, readonly active: [number, number][], parent: HTMLElement, private readonly css = '') {
-    this.iframe.width = String(width);
-    this.iframe.height = String(height);
-    this.iframe.src = src;
-    this.iframe.addEventListener('load', () => {
-      const doc = this.iframe.contentDocument!;
-      doc.head.append(Object.assign(doc.createElement('style'), { textContent: `#loading{display:none!important}${this.css}` }));
-      this.loaded = true;
-    });
-    this.frame.append(this.iframe);
-    parent.append(this.frame);
-  }
-  get win(): AppWindow | null { return this.loaded ? this.iframe.contentWindow as unknown as AppWindow : null; }
-  get api(): TreeApi { return this.win!.__tree!; }
-  get doc(): Document { return this.iframe.contentDocument!; }
-  get ready(): boolean { return !!this.win?.__tree?.ready; }
-  isActive(t: number): boolean { return this.active.some(([a, b]) => t >= a && t <= b); }
-  step(ms: number): void { this.win?.__vt?.step(ms); }
-  /** Places the frame at a rectangle on the film; the app keeps rendering at its own size and is scaled to fit. */
-  place(x: number, y: number, w: number, opacity = 1, radius = 0): void {
-    style(this.frame, { left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${w * this.height / this.width}px`, opacity, 'border-radius': `${radius}px`, visibility: opacity > 0 ? 'visible' : 'hidden' });
-    this.iframe.style.transform = `scale(${w / this.width})`;
-  }
-  hide(): void { this.frame.style.visibility = 'hidden'; }
-}
-
-/** Orbit-style camera pose; `shift` trucks the camera left so the tree sits right of centre. */
-function orbit(angle: number, elevation: number, distance: number, targetY: number, shift = 0): Pose {
-  const target: Vec3 = [-Math.cos(angle) * shift, targetY, Math.sin(angle) * shift];
-  return {
-    target,
-    position: [
-      target[0] + Math.sin(angle) * Math.cos(elevation) * distance,
-      targetY + Math.sin(elevation) * distance,
-      target[2] + Math.cos(angle) * Math.cos(elevation) * distance,
-    ],
-  };
-}
 
 const quality = 'quality=high&seed=1225';
 const shared = cloneScene(exampleScene);
@@ -161,10 +73,6 @@ const windowHead = opening.appendChild(h('div', 'window-head', '<span class="dot
 const PREVIEW = { x: 1000, y: 330, w: 800 };
 style(windowHead, { left: `${PREVIEW.x}px`, top: `${PREVIEW.y - 56}px`, width: `${PREVIEW.w}px` });
 
-function typed(text: string, times: number[], t: number): string {
-  return Array.from(text).filter((_, i) => t >= times[i]).join('');
-}
-
 function drawOpening(t: number): void {
   const visible = t < 9.8;
   opening.style.visibility = visible ? 'visible' : 'hidden';
@@ -205,10 +113,6 @@ function drawOpening(t: number): void {
   const headIn = outCubic(ramp(t, 5.55, 6.15));
   const expand = inOut(ramp(t, 8.45, 9.6));
   style(windowHead, { opacity: headIn * (1 - ramp(t, 8.45, 8.75)), transform: `translateY(${(1 - headIn) * 30}px)` });
-}
-
-function escapeHtml(text: string): string {
-  return text.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!)).replace(/\n/g, '<br>');
 }
 
 // ---------- captions ----------
@@ -495,9 +399,7 @@ const api = {
     draw(t);
   },
   info() {
-    const gl = document.createElement('canvas').getContext('webgl2');
-    const ext = gl?.getExtension('WEBGL_debug_renderer_info');
-    return { duration: DURATION, gpu: ext ? gl!.getParameter(ext.UNMASKED_RENDERER_WEBGL) : 'unknown' };
+    return { duration: DURATION, gpu: gpuInfo() };
   },
   renderAudio(mix: 'full' | 'effects'): Promise<string> {
     const audioCues: AudioCues = {
