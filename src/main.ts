@@ -82,6 +82,9 @@ interface TreeDebug {
   setTheme(theme: ThemeId): void;
   /** Tree-only white wireframe on black, for the promo's line-drawing shot. */
   setBlueprint(on: boolean): void;
+  /** World position of the newest wish tag, and opening its note (what a tap on the tag does). */
+  wishAnchor(): Triple | undefined;
+  showWish(): void;
 }
 
 declare global {
@@ -117,7 +120,7 @@ let ignite = () => {};
 const actions = {
   setMagic: (_on: boolean) => {}, openEditor: () => {}, closeEditor: () => {}, addWish: (_text: string) => {}, playFinale: () => {}, startDemo: () => {},
   setClean: (_clean: boolean) => {}, setMagicForm: (_form: number, _target: 0 | 1) => {}, setTheme: (_theme: ThemeId) => {},
-  setBlueprint: (_on: boolean) => {},
+  setBlueprint: (_on: boolean) => {}, wishAnchor: (): Triple | undefined => undefined, showWish: () => {},
 };
 
 const api: TreeDebug = {
@@ -162,6 +165,8 @@ const api: TreeDebug = {
   setMagicForm: (form, target) => actions.setMagicForm(form, target),
   setTheme: theme => actions.setTheme(theme),
   setBlueprint: on => actions.setBlueprint(on),
+  wishAnchor: () => actions.wishAnchor(),
+  showWish: () => actions.showWish(),
 };
 
 if (import.meta.env.DEV) window.__tree = api;
@@ -527,6 +532,18 @@ async function start(): Promise<void> {
     setMagicForm: (form: number, target: 0 | 1) => { magic.setForm(form); magic.setTarget(target); },
     setTheme: (theme: ThemeId) => { tree.theme = theme; applyTheme(); },
     setBlueprint,
+    wishAnchor: () => {
+      const id = tree.wishes.at(-1)?.id;
+      const anchor = id ? wishes.anchor(id) : undefined;
+      return anchor ? anchor.toArray() as Triple : undefined;
+    },
+    showWish: () => {
+      const wish = tree.wishes.at(-1);
+      if (!wish) return;
+      noteFor = wish.id;
+      hud.showWishNote(wish.text);
+      audio.sparkle(0, 2);
+    },
   });
 
   // ---------- promo line drawing ----------

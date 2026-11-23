@@ -117,8 +117,13 @@ const duration = Math.min(to ?? info.duration, info.duration);
 const clip = { x: 0, y: 0, width: WIDTH, height: HEIGHT, scale: outScale };
 
 if (stills) {
+  let at = 0;
   for (const time of [...stills].sort((a, b) => a - b)) {
-    await evaluate(`window.__promo.seek(${time})`);
+    // advance frame by frame so the page's own events and promises run between steps, exactly as in a video render
+    while (at < time) {
+      at = Math.min(time, at + 1 / 30);
+      await evaluate(`window.__promo.seek(${at})`);
+    }
     const { data } = await page('Page.captureScreenshot', { format: 'png', clip });
     const file = join(outDir, `still-${String(time).replace('.', '_')}s.png`);
     writeFileSync(file, Buffer.from(data, 'base64'));

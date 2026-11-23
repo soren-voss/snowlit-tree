@@ -51,6 +51,8 @@ export interface TreeApi {
   setMagic(on: boolean): void;
   setTheme(theme: ThemeId): void;
   setBlueprint(on: boolean): void;
+  wishAnchor(): Vec3 | undefined;
+  showWish(): void;
   openGift(id: string): boolean;
   openEditor(): void;
   closeEditor(): void;

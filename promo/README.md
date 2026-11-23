@@ -5,7 +5,7 @@
 ## 两个版本
 - `index.html`：带字幕的特色介绍版（约 54 秒）。
 - `film.html`：无字版，仿模型发布“作品展示”短片：打字下需求 → 方案文档滚动 → 纸面设计稿（枝叶贴图、线稿树）→ 粒子聚树点亮 → 拆礼物 → 彩蛋 → 黑场（47 秒）。渲染时加 `--url http://localhost:5173/promo/film.html --out film.mp4`。
-- `motion.html`：动效版（40 秒）：打字 → 输入框变形成窗口、粒子聚树点亮 → 6 个实时画面宫格 + 线条图标，按节拍逐个放大展示真实操作 → 彩蛋 → 项目名。渲染时加 `--url http://localhost:5173/promo/motion.html --out motion.mp4`。
+- `motion.html`：动效版（52 秒）：2 秒高光钩子 → 打字 → 输入框变形成窗口、粒子聚树点亮 → 6 个实时画面宫格 + 线条图标，按节拍逐个放大展示真实操作（许愿推近金卡、手机收到消息后点亮）→ 彩蛋 → 项目名。渲染时加 `--url http://localhost:5173/promo/motion.html --out motion.mp4`。
 
 ## 文件
 - `index.html` / `promo.css` / `promo.ts`：合成页面，所有画面都由时间 `t` 决定；内嵌 5 个项目实例（iframe）。
