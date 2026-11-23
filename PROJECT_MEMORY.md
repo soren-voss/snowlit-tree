@@ -26,11 +26,19 @@
   - 音频 `src/audio/audio.ts`：WebAudio 合成八音盒《平安夜》《铃儿响叮当》《祝你圣诞快乐》+ 音效，可上传本地音乐（不进分享链接）。
   - 录制模式：编辑面板进入或 `?record=1`；H 隐藏界面、F 9:16 取景框、D 约 37 秒自动演示、Esc 退出。
   - 部署：`.github/workflows/deploy.yml`（推到 main/master 后构建发布 Pages），尚未建远程仓库。
+- [x] 抖音宣传片（2026-11-23，`promo/`，说明见 `promo/README.md`）：三个版本——带字幕版 `index.html`、无字纪录版 `film.html`、动效版 `motion.html`（用户选定，50 秒）。
+  - 做法：合成页面内嵌多个项目实例（iframe），`vt.js` 虚拟时钟 + `render.mjs` 用系统 Chrome 无头逐帧截图（DevTools 协议，无 npm 依赖），ffmpeg 编码；配乐/音效由 `music.ts` 离线 WebAudio 合成（公有领域曲目）。
+  - 需要开发服务器在 5173 运行；`window.__tree` 新增仅开发模式钩子（镜头、魔法形态、主题、线稿、许愿锚点等）供宣传片驱动。
+  - 成片：`promo/out/snowlit-tree-motion-1080p60.mp4`（另有仅音效版），输出目录不进 Git。配乐未经人耳试听。
+
+- [x] P3 打磨开源（2026-11-23）：README.md（功能、使用、录制、部署、二次创作指南、协议）、LICENSE（MIT，素材另注）、`docs/` 演示 GIF ×3 + 编辑面板截图（由 `promo/readme.html` 逐帧渲染）；中低画质改加载 `public/assets/tree/small/`（树贴图 5.0MB → 0.55MB）。
+- 宣传片：另一个会话在 `promo/` 做了 3 个版本的宣传视频（见 promo/README.md），给 `window.__tree` 加了 setCameraPose / setMagicForm / setTheme 等钩子。
 
 ## 已知待办
 - 真机（中端安卓、微信内置浏览器）帧率与加载时间未测；音乐和音效只验证了能正常调度，未人耳试听。
 - 内置浏览器面板在 Claude 窗口不在前台时会降到 ~2fps 或暂停，动画类验收需窗口在前台。
-- 依赖新增 lz-string（MIT）、uqr（MIT，二维码）。
+- 依赖新增 lz-string（MIT）、uqr（MIT，二维码）；postprocessing 为 Zlib 协议。
+- 尚未建远程仓库、未部署 Pages；推送和开启 Pages 需用户操作或授权。
 - 调试接口 `window.__tree.stats` 可看绘制调用和三角面数。
 
 ## 待确认

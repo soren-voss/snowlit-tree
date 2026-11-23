@@ -11,12 +11,13 @@ export interface TreeTextures {
 
 const base = `${import.meta.env.BASE_URL}assets/tree/`;
 
-export async function loadTreeTextures(renderer: WebGLRenderer, onProgress: (fraction: number) => void): Promise<TreeTextures> {
+/** `small` loads the 1K / 512 px copies in assets/tree/small (about a tenth of the download), used below high quality. */
+export async function loadTreeTextures(renderer: WebGLRenderer, onProgress: (fraction: number) => void, small = false): Promise<TreeTextures> {
   const loader = new TextureLoader();
   const files = ['twig-color', 'twig-alpha', 'twig-normal', 'bark-color', 'bark-normal'] as const;
   let done = 0;
   const textures = await Promise.all(files.map(async name => {
-    const texture = await loader.loadAsync(`${base}${name}.jpg`);
+    const texture = await loader.loadAsync(`${base}${small ? 'small/' : ''}${name}.jpg`);
     onProgress(++done / files.length);
     return texture;
   }));

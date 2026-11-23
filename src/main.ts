@@ -235,7 +235,7 @@ async function start(): Promise<void> {
   world.add(moon, moon.target, fill, warm, ambient);
   const textures = await loadTreeTextures(pipeline.renderer, fraction => {
     loadingStar.style.setProperty('--load', String(.19 + .3 * fraction));
-  });
+  }, quality.quality !== 'high');
   await loadProgress(.5);
 
   const evergreen = createEvergreen(textures, createRandom(seed ^ 221799));

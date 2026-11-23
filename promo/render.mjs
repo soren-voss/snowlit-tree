@@ -147,7 +147,7 @@ if (!flag('no-audio')) {
 const outWidth = Math.round(WIDTH * outScale), outHeight = Math.round(HEIGHT * outScale);
 const encodeArgs = ['-y', '-hide_banner', '-loglevel', 'error', '-f', 'image2pipe', '-framerate', String(fps), '-c:v', 'mjpeg', '-i', '-'];
 if (audioFiles[0]) encodeArgs.push('-ss', String(from), '-i', audioFiles[0]);
-encodeArgs.push('-vf', `scale=${outWidth}:${outHeight}:flags=lanczos,format=yuv420p`,
+encodeArgs.push('-vf', `scale=${outWidth}:${outHeight}:flags=lanczos:in_range=pc:out_range=tv,format=yuv420p`, '-color_range', 'tv',
   '-c:v', 'libx264', '-preset', preview ? 'medium' : 'slow', '-crf', preview ? '20' : '15', '-profile:v', 'high',
   '-r', String(fps), '-g', String(fps * 2), '-bf', '2', '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709');
 if (audioFiles[0]) encodeArgs.push('-c:a', 'aac', '-b:a', '256k', '-ar', '48000', '-shortest');
