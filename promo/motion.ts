@@ -50,7 +50,8 @@ const A = new Instance(`/?${quality}`, 1920, 1080, [[0, GRID_AT + .6], [FINALE_A
 const H = new Instance(`/?${quality}&skipIntro=1`, 1920, 1080, [[0, HOOK[0] + .1]], scenes);
 const tiles: Record<Key, Instance> = {
   G: new Instance(`/?${quality}&skipIntro=1`, 1920, 1080, grid, scenes, '#gift-dialog .gift-card{zoom:1.25}'),
-  E: new Instance(`/?${quality}&skipIntro=1`, 1120, 630, grid, scenes),
+  // the share QR encodes a localhost link, so it is blurred to keep viewers from scanning a dead address
+  E: new Instance(`/?${quality}&skipIntro=1`, 1120, 630, grid, scenes, '#editor canvas.qr{filter:blur(7px)}'),
   B: new Instance(`/?${quality}&skipIntro=1`, 1920, 1080, grid, scenes),
   C: new Instance(`/?${quality}&skipIntro=1`, 1920, 1080, grid, scenes),
   W: new Instance(`/?${quality}&skipIntro=1`, 1920, 1080, [[0, HOOK[1] + .1], ...grid], scenes,
