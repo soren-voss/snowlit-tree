@@ -31,6 +31,7 @@ const hz = (note: number) => 440 * 2 ** ((note - 69) / 12);
 const CHORDS: Record<string, string[]> = {
   C: ['C3', 'G3', 'C4', 'E4'], Cmaj7: ['C3', 'G3', 'B3', 'E4'], Am7: ['A2', 'E3', 'G3', 'C4'], Fmaj7: ['F2', 'C3', 'E3', 'A3'],
   F: ['F2', 'C3', 'F3', 'A3'], G: ['G2', 'D3', 'G3', 'B3'], G7: ['G2', 'D3', 'F3', 'B3'], D7: ['D3', 'A3', 'C4', 'F#4'],
+  D: ['D3', 'A3', 'D4', 'F#4'], E7: ['E3', 'B3', 'D4', 'G#4'], A7: ['A2', 'E3', 'G3', 'C#4'],
 };
 const ROOTS: Record<string, string> = { C: 'C2', Cmaj7: 'C2', Am7: 'A1', Fmaj7: 'F1', F: 'F1', G: 'G1', G7: 'G1', D7: 'D2' };
 
@@ -505,11 +506,13 @@ export async function renderFilmAudio(mix: 'full' | 'effects', cues: FilmCues): 
   return render(withMusic ? .89 : .7);
 }
 
-// ---------- motion cut score: highlight hook, then 120 BPM "Jingle Bells" from the drop, home chord on the name mark ----------
+// ---------- motion cut score: highlight hook, 120 BPM "Jingle Bells" from the drop with a breakdown for the magic,
+// a quiet wish, a build through the phone, the second chorus a tone higher, home chord on the name mark ----------
 export interface MotionCues {
   duration: number;
   drop: number;
   hook: number[];
+  hookGift: number;
   typing: number[];
   send: number;
   morph: number;
@@ -526,22 +529,25 @@ export interface MotionCues {
   wishLand: number;
   wishNote: number;
   magic: number;
+  share: { tab: number; copy: number; plane: number[] };
   phone: { bubble: number; open: number; tap: number };
   outro: number;
   finale: number;
   end: number;
 }
 
+type Energy = 'full' | 'light' | 'build' | 'none';
+
 export async function renderMotionAudio(mix: 'full' | 'effects', cues: MotionCues): Promise<string> {
   const withMusic = mix === 'full';
   const { music, sfx, tine, pad, bass, noiseHit, sine, kick, snare, hat, sleigh, crash, boom, keyClick, uiClick, whoosh, riser, bell, sparkle, render } = createEngine(cues.duration);
   const D = cues.drop;
 
-  // hook: two hits and a sweep into the quiet prompt
+  // hook: the lid pops and the beam bursts, then the star flight; a sweep into the quiet prompt
   boom(0, .6);
   crash(0, .2);
-  bell(0, 1046.5, .25);
-  sparkle(.05, 10, .1);
+  sine(0, 190, 70, .16, .4, sfx, .12);
+  sparkle(cues.hookGift + 2.68, 8, .1);
   kick(cues.hook[0], .7);
   crash(cues.hook[0], .16);
   bell(cues.hook[0], 1318.5, .18);
@@ -549,7 +555,7 @@ export async function renderMotionAudio(mix: 'full' | 'effects', cues: MotionCue
   riser(cues.hook[0] + .3, cues.hook[1] - .05, .12);
   whoosh(cues.hook[1] - .3, .7, false, .14);
   // effects
-  cues.typing.forEach(at => keyClick(at));
+  cues.typing.forEach(at => keyClick(at, .14));
   keyClick(cues.send, .2);
   sine(cues.send, 520, 880, .12, .12, sfx, .06);
   whoosh(cues.morph - .1, 1, true, .12);
@@ -561,7 +567,7 @@ export async function renderMotionAudio(mix: 'full' | 'effects', cues: MotionCue
   crash(D, .2);
   bell(D, 1046.5, .2);
   sparkle(D + .05, 9, .09);
-  crash(cues.grid, .1);
+  whoosh(cues.grid - .1, .6, false, .1);
   ['C6', 'D6', 'E6', 'G6', 'A6', 'C7'].forEach((note, i) => { tine(cues.pops[i], midi(note), .12, sfx, .7, (i / 5 - .5) * .8); noiseHit(cues.pops[i], .05, 'highpass', 4000, 3000, .05, sfx); });
   cues.focuses.forEach(at => whoosh(at - .22, .55, true, .08));
   const g = cues.giftOpen;
@@ -570,84 +576,95 @@ export async function renderMotionAudio(mix: 'full' | 'effects', cues: MotionCue
   sparkle(g + 2.68, 6, .08);
   sparkle(g + 4.38, 4, .08);
   cues.clicks.forEach(at => uiClick(at));
-  cues.themes.forEach(at => sparkle(at, 3, .08));
-  whoosh(cues.magic, 3.4, true, .13);
-  sparkle(cues.magic + .9, 10, .07);
+  cues.themes.forEach(at => { sparkle(at, 4, .1); noiseHit(at, .25, 'highpass', 6000, 4000, .08, sfx); });
+  whoosh(cues.magic, 3.4, true, .15);
+  sparkle(cues.magic + .9, 12, .08);
   cues.wishType.forEach(at => keyClick(at, .08));
   uiClick(cues.wishSubmit, .14);
-  whoosh(cues.wishSubmit, 1.75, true, .06);
+  whoosh(cues.wishSubmit, 1.75, true, .07);
   [84, 88, 91, 96].forEach((note, i) => tine(cues.wishLand + i * .09, note, .14, sfx, .7));
-  sparkle(cues.wishNote, 3, .08);
-  tine(cues.phone.bubble + .1, 88, .12, sfx, .6);
-  tine(cues.phone.bubble + .2, 93, .1, sfx, .6);
+  sparkle(cues.wishNote, 4, .09);
+  uiClick(cues.share.copy, .16);
+  whoosh(cues.share.plane[0], cues.share.plane[1] - cues.share.plane[0] + .1, true, .12);
+  tine(cues.phone.bubble + .05, 88, .13, sfx, .6);
+  tine(cues.phone.bubble + .15, 93, .11, sfx, .6);
   uiClick(cues.phone.open, .14);
   uiClick(cues.phone.tap, .14);
   bell(cues.phone.tap + .05, 659.25, .28);
   sparkle(cues.phone.tap + .6, 6, .07);
-  bell(cues.phone.tap + 3.98, 1318.5, .12);
+  bell(cues.phone.tap + 3.98, 1318.5, .14);
   whoosh(cues.outro - .15, .7, true, .1);
-  [72, 76, 79, 84, 88, 91, 96].forEach((note, i) => tine(cues.finale + .4 + i * .11, note, .1, sfx, 1.2));
+  [74, 78, 81, 86, 90, 93, 98].forEach((note, i) => tine(cues.finale + .4 + i * .11, note, .1, sfx, 1.2));
   sparkle(cues.finale + 1.4, 10, .07);
   crash(cues.end, .15);
   boom(cues.end, .32);
-  bell(cues.end, 523.25, .3);
+  bell(cues.end, 587.33, .3);
 
   if (withMusic) {
     const start = cues.hook[1];
-    // prompt: soft pad, slow music-box notes under the typing
-    pad(start, 5, 'Cmaj7', .045, 900);
-    ['G5', 'B5', 'E6', 'D6', 'G5', 'B5', 'E6', 'C6'].forEach((note, i) => tine(start + .5 + i * .6, midi(note), .08, music, 1.2, i % 2 ? .25 : -.25));
+    // prompt: soft pad, quick music-box notes under the typing
+    pad(start, cues.morph - start + .3, 'Cmaj7', .045, 900);
+    ['G5', 'B5', 'E6', 'D6', 'G5', 'C6'].forEach((note, i) => tine(start + .3 + i * .5, midi(note), .08, music, 1.2, i % 2 ? .25 : -.25));
     // build: arpeggios quicken, heartbeat kicks, riser into the drop
-    pad(7, 5, 'Am7', .05, 1000);
-    pad(12, 2, 'Fmaj7', .065, 1300);
-    pad(14, 1.85, 'G', .08, 1900);
-    bass(8, midi('A1'), 4, .22);
-    bass(12, midi('F1'), 2, .26);
-    bass(14, midi('G1'), 1.85, .28);
+    pad(cues.morph, cues.ignite - cues.morph, 'Am7', .05, 1000);
+    pad(cues.ignite, 2, 'Fmaj7', .065, 1300);
+    pad(cues.ignite + 2, 1.85, 'G', .08, 1900);
+    bass(cues.converge, midi('A1'), cues.ignite - cues.converge, .22);
+    bass(cues.ignite, midi('F1'), 2, .26);
+    bass(cues.ignite + 2, midi('G1'), 1.85, .28);
     const arp = (from: number, to: number, step: number, notes: string[], level: number) => {
       for (let at = from, i = 0; at < to - .01; at += step, i++) tine(at, midi(notes[i % notes.length]) + (i % 8 >= 4 ? 12 : 0), level, music, .7, i % 2 ? .3 : -.3);
     };
-    arp(8, 12, .5, ['A5', 'C6', 'E6', 'G6'], .07);
-    arp(12, 14, .25, ['F5', 'A5', 'C6', 'E6'], .08);
-    arp(14, 15.9, .125, ['G5', 'B5', 'D6', 'G6'], .09);
-    for (let at = 14; at < 15; at += .5) kick(at, .35);
-    for (let at = 15; at < 15.9; at += .25) kick(at, .38 + (at - 15) * .25);
-    riser(13, D - .05, .13);
+    arp(cues.converge, cues.ignite, .5, ['A5', 'C6', 'E6', 'G6'], .07);
+    arp(cues.ignite, cues.ignite + 2, .25, ['F5', 'A5', 'C6', 'E6'], .08);
+    arp(cues.ignite + 2, D - .1, .125, ['G5', 'B5', 'D6', 'G6'], .09);
+    for (let at = D - 2; at < D - 1; at += .5) kick(at, .35);
+    for (let at = D - 1; at < D - .1; at += .25) kick(at, .38 + (at - D + 1) * .25);
+    riser(D - 3, D - .05, .13);
 
-    const playMelody = (from: number, notes: [number, number, number][], level: number) => {
+    const CHORD_ROOTS: Record<string, string> = { C: 'C2', F: 'F1', G7: 'G1', D7: 'D2', D: 'D2', G: 'G1', E7: 'E2', A7: 'A1' };
+    const playMelody = (from: number, notes: [number, number, number][], level: number, shift = 0) => {
       for (const [b, note] of notes) {
-        tine(from + b * .5, note, level, music, 1, -.08);
-        tine(from + b * .5, note + 12, level * .3, music, .7, .3);
+        tine(from + b * .5, note + shift, level, music, 1, -.08);
+        tine(from + b * .5, note + shift + 12, level * .3, music, .7, .3);
       }
     };
-    const groove = (from: number, chords: string[], fill = false) => chords.forEach((chord, bar) => {
-      const t0 = from + bar * 2;
-      pad(t0, 2, chord, .042, 1500);
-      const root = midi({ C: 'C2', F: 'F1', G7: 'G1', D7: 'D2', G: 'G1' }[chord]!);
-      bass(t0, root, .95, .42);
-      bass(t0 + 1, root + 7, .45, .32);
-      bass(t0 + 1.5, root + 12, .45, .28);
+    /** One bar of accompaniment at a given energy. */
+    const bar = (t0: number, chord: string, energy: Energy, fill = false) => {
+      pad(t0, 2, chord, energy === 'none' ? .055 : .042, energy === 'none' ? 1000 : 1500);
+      const root = midi(CHORD_ROOTS[chord]);
+      bass(t0, root, energy === 'none' ? 1.9 : .95, energy === 'light' || energy === 'none' ? .3 : .42);
+      if (energy === 'none') return;
+      bass(t0 + 1, root + 7, .45, .3);
+      if (energy !== 'light') bass(t0 + 1.5, root + 12, .45, .28);
       for (let beat = 0; beat < 4; beat++) {
         const at = t0 + beat * .5;
-        if (beat % 2 === 0) kick(at, .62); else snare(at, .26);
-        hat(at + .25, .06);
-        sleigh(at, .045);
+        if (energy === 'full') { if (beat % 2 === 0) kick(at, .62); else snare(at, .26); hat(at + .25, .06); }
+        if (energy === 'build') { kick(at, .42); if (beat % 2) hat(at, .05); }
+        sleigh(at, energy === 'light' ? .035 : .045);
         sleigh(at + .25, .03);
       }
-      if (fill && bar === chords.length - 1) for (let i = 0; i < 4; i++) snare(t0 + 1.5 + i * .125, .12 + i * .05);
-    });
-    // the chorus twice: once for the grid's first half, once through the wish, the phone and the finale
+      if (fill) for (let i = 0; i < 4; i++) snare(t0 + 1.5 + i * .125, .12 + i * .05);
+    };
     const chorus = phrase('E5 E5 E5:2 E5 E5 E5:2 E5 G5 C5:1.5 D5:.5 E5:4 F5 F5 F5:1.5 F5:.5 F5 E5 E5 E5:.5 E5:.5 E5 D5 D5 E5 D5:2 G5:2');
+    // first chorus: full, with the bar under the magic dropped out
     playMelody(D, chorus, .2);
-    groove(D, ['C', 'C', 'C', 'C', 'F', 'C', 'D7', 'G7'], true);
-    crash(D + 16, .12);
-    playMelody(D + 16, chorus, .2);
-    groove(D + 16, ['C', 'C', 'C', 'C', 'F', 'C', 'D7', 'G7'], true);
+    const first: [string, Energy][] = [['C', 'full'], ['C', 'full'], ['C', 'full'], ['C', 'full'], ['F', 'full'], ['C', 'full'], ['D7', 'none'], ['G7', 'build']];
+    first.forEach(([chord, energy], i) => bar(D + i * 2, chord, energy, i === 7));
+    crash(cues.magic + 2.5, .12);
+    // second chorus, a tone higher: hushed for the wish, building through the share, full for the finale
+    const second = D + 16;
+    playMelody(second, chorus.slice(0, 6), .15, 2);
+    playMelody(second, chorus.slice(6), .2, 2);
+    const later: [string, Energy][] = [['D', 'light'], ['D', 'light'], ['D', 'build'], ['D', 'build'], ['G', 'full'], ['D', 'full'], ['E7', 'full'], ['A7', 'full']];
+    later.forEach(([chord, energy], i) => bar(second + i * 2, chord, energy, i === 3 || i === 7));
+    crash(second + 8, .12);
+    crash(cues.outro + .35, .16);
     const E = cues.end;
-    pad(E, 3.8, 'C', .07, 1400);
-    bass(E, midi('C2'), 3.2, .4);
-    tine(E, midi('C5'), .22, music, 2);
-    ['C5', 'E5', 'G5', 'C6', 'E6', 'G6', 'C7'].forEach((note, i) => tine(E + .1 + i * .08, midi(note), .14, music, 1.6, (i / 6 - .5) * .8));
+    pad(E, 3.8, 'D', .07, 1400);
+    bass(E, midi('D2'), 3.2, .4);
+    tine(E, midi('D5'), .22, music, 2);
+    ['D5', 'F#5', 'A5', 'D6', 'F#6', 'A6', 'D7'].forEach((note, i) => tine(E + .1 + i * .08, midi(note), .14, music, 1.6, (i / 6 - .5) * .8));
     kick(E, .6);
   }
   return render(withMusic ? .89 : .7);

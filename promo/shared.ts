@@ -88,6 +88,12 @@ export class Instance {
     style(this.frame, { left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${w * this.height / this.width}px`, opacity, 'border-radius': `${radius}px`, visibility: opacity > 0 ? 'visible' : 'hidden' });
     this.iframe.style.transform = `scale(${w / this.width})`;
   }
+  /** Like `place`, but any w × h box: the app is scaled to cover it and centred (used while a window changes shape). */
+  cover(x: number, y: number, w: number, h: number, opacity = 1, radius = 0): void {
+    const scale = Math.max(w / this.width, h / this.height);
+    style(this.frame, { left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${h}px`, opacity, 'border-radius': `${radius}px`, visibility: opacity > 0 ? 'visible' : 'hidden' });
+    this.iframe.style.transform = `translate(${(w - this.width * scale) / 2}px, ${(h - this.height * scale) / 2}px) scale(${scale})`;
+  }
   hide(): void { this.frame.style.visibility = 'hidden'; }
 }
 
